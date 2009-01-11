@@ -1,0 +1,12 @@
+type = "dir"
+order = {
+	{ type: "label", en: "Request source" }
+	"cgi"
+	"cli"
+	"lib"
+	"user"
+
+	{ type: "label", en: "Request content" }
+	"arg"
+	"regexp"
+}

@@ -1,0 +1,3 @@
+type = "list"
+title = { en: "Users to match" }
+descr = { en: "Leave empty to match all users" }
