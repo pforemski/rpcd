@@ -9,4 +9,5 @@ order = {
 	{ type: "label", en: "Request content" }
 	"arg"
 	"regexp"
+	"nregexp"
 }

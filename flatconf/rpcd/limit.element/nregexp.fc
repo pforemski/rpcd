@@ -1,0 +1,2 @@
+type = "list"
+title = { en: "Regular expressions that the value must not satisfy" }

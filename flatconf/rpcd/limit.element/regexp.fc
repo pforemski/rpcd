@@ -1,2 +1,2 @@
 type = "list"
-title = { en: "Regular expression that the value must satisfy" }
+title = { en: "Regular expressions that the value must satisfy" }
