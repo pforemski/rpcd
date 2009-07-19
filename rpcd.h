@@ -31,7 +31,7 @@ struct rpcd {
 	thash *modules;          /** char *command -> struct mod *module */
 	thash *env;              /** global environment skeleton */
 	thash *rrules;           /** char*s -> struct rrule*: the global regexp firewall */
-//	tlist *checks;           /** list of struct mod*: modules of which check() to issue on each request */
+//	tlist *checks;           /** TODO: list of struct mod*: modules of which check() to issue on each request */
 } R;
 
 #define CFG(name) (asn_fcget(R.fc, (name)))
@@ -63,7 +63,7 @@ struct rep {
 
 	union repdata {
 		bool        as_bool;
-		const char *as_char;
+		const char *as_string;
 		int         as_int;
 		double      as_double;
 		tlist      *as_tlist;

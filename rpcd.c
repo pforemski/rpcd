@@ -107,6 +107,37 @@ static int parse_argv(int argc, char *argv[])
 	return 1;
 }
 
+// TODO: export
+static void readcli(struct req *req, mmatic *mm)
+{
+	char line[BUFSIZ];
+	int i, j, c = 0;
+
+	/* read query from stdin (format like good old rfc822) */
+	while (fgets(line, sizeof(line), stdin)) {
+		c++;
+		if (!line[0] || line[0] == '\n') break;
+
+		for (i = 0        ; line[i] != ':';  i++) if (!line[i+1]) abort();
+		for (line[i++] = 0; line[i] == ' ';  i++) if (!line[i+1]) abort();
+		for (j = i        ; line[j] != '\n'; j++) if (!line[j+1]) abort();
+		line[j] = 0;
+
+		dbg(8, "stdin: %s='%s'\n", line, line+i);
+		if (streq(line, "jsonrpc"))
+			; // TODO?
+		else if (streq(line, "method"))
+			req->method = mmstrdup(line + i);
+		else if (streq(line, "id"))
+			req->id = mmstrdup(line + i);
+		else
+			thash_set(req->args, line, mmstrdup(line + i));
+	}
+
+	if (!c) exit(0); // TODO?
+}
+
+
 int main(int argc, char *argv[])
 {
 	char _path[PATH_MAX];
@@ -115,6 +146,8 @@ int main(int argc, char *argv[])
 	struct fcel *fcel;
 	tlist *tlist, *ls;
 	struct mod *mod;
+	struct req *req;
+	struct rep *rep;
 
 	getcwd(_path, sizeof(_path));
 
@@ -140,7 +173,7 @@ int main(int argc, char *argv[])
 	thash_dump(5, R.fc);
 
 	/* export Flatconf as bot environment */
-	THASH_ITER_LOOP(R.fc, v, k)
+	THASH_ITER_LOOP(R.fc, k, v)
 		thash_set(R.env, mmprintf("FC_%s", asn_replace("/[^a-zA-Z0-9_]/", "_", k, mm)), v);
 
 	/* scan through fc:/dir */
@@ -192,18 +225,58 @@ int main(int argc, char *argv[])
 
 	/* TODO: init R.rrules */
 
-	if (R.daemonize)
-		asn_daemonize(CFG("name"), R.pidfile);
+	/* TODO: unhash when its needed */
+//	if (R.daemonize)
+//		asn_daemonize(CFG("name"), R.pidfile);
 
-	/* flush temp mem */
-	mmatic_free(mmtmp);
-	mmtmp = mmatic_create();
+	do {
+		/* flush temp mem */
+		mmatic_free(mmtmp);
+		mmtmp = mmatic_create();
 
-	dbg(3, "starting main loop\n");
-	for (;;) {
-		sleep(1);
-		dbg(0, "buu :)\n");
-	}
+		/* prepare request struct */
+		req = mmatic_alloc(sizeof(*req), mmtmp);
+		req->id = "";
+		req->method = "";
+		req->params = MMTLIST_CREATE(NULL);
+		req->args = MMTHASH_CREATE_STR(NULL);
+		req->env = thash_clone(R.env, mmtmp);
+
+		readcli(req, mmtmp); // TODO
+		thash_dump(5, req->args);
+
+		/* prepare reply struct */
+		rep = mmatic_alloc(sizeof(*rep), mmtmp);
+		rep->req = req;
+		rep->type = _T_NONE;
+
+		/* TODO: find handler */
+		mod = thash_get(R.modules, req->method);
+		if (!mod) {
+			dbg(0, "no such procedure: %s\n", req->method);
+			continue;
+		}
+
+		/* TODO: check arguments */
+		if (mod->check && !mod->check(req, rep)) {
+			dbg(0, "access denied\n");
+			continue;
+		}
+
+		/* TODO: handle */
+		if (mod->handle && !mod->handle(req, rep)) {
+			dbg(0, "internal error\n");
+			continue;
+		}
+
+		/* TODO: send the output */
+		if (rep->type == _T_NONE)
+			dbg(0, "no output\n");
+		else if (rep->type == T_STRING)
+			dbg(0, "output: %s\n", rep->data.as_string);
+		else
+			dbg(0, "output not supported yet :)\n");
+	} while (true);
 
 	return 1;
 }
