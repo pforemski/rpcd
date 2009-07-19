@@ -15,6 +15,10 @@
 #define RPCD_VER "0.1"
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
 
+/** Temporary mmatic flushed after each query */
+extern mmatic *mmtmp;
+#define pbt(...) (mmatic_printf(mmtmp, __VA_ARGS__))
+
 /** Global data root */
 struct rpcd {
 	const char *startdir;    /** starting $PWD */
@@ -27,7 +31,7 @@ struct rpcd {
 	thash *modules;          /** char *command -> struct mod *module */
 	thash *env;              /** global environment skeleton */
 	thash *rrules;           /** char*s -> struct rrule*: the global regexp firewall */
-	tlist *checks;           /** list of struct mod*: modules of which check() to issue on each request */
+//	tlist *checks;           /** list of struct mod*: modules of which check() to issue on each request */
 } R;
 
 #define CFG(name) (asn_fcget(R.fc, (name)))
@@ -90,8 +94,8 @@ struct rrule {
 
 /** Module representation */
 struct mod {
-	const char *path;        /** module file path */
 	enum modtype { C, JS, SH } type; /** implemented in? */
+	const char *path;        /** full path to module */
 
 	thash *rrules;           /** regexp rules to check only for this command */
 

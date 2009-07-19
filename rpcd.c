@@ -21,6 +21,7 @@
 __USE_LIBASN
 
 mmatic *mm;
+mmatic *mmtmp;
 
 /** SIGUSR1 handler which shows mm dump */
 static void show_memory() { if (mm) mmatic_summary(mm, 0); }
@@ -109,17 +110,21 @@ static int parse_argv(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
 	char _path[PATH_MAX];
-	char *v, *k;
+	char *v, *k, *path, *proc, *ext;
+	enum modtype type;
+	struct fcel *fcel;
+	tlist *tlist, *ls;
+	struct mod *mod;
 
 	getcwd(_path, sizeof(_path));
 
 	/* init some vars */
 	mm = mmatic_create();
+	mmtmp = mmatic_create();
 	R.startdir = mmstrdup(_path);
 	R.modules  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
 	R.env      = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
 	R.rrules   = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
-	R.checks   = MMTLIST_CREATE(NULL);     /* TODO: free f-n? */
 
 	/* setup signal handling */
 	signal(SIGPIPE, SIG_IGN);
@@ -132,16 +137,67 @@ int main(int argc, char *argv[])
 
 	/* read Flatconf */
 	R.fc = asn_fcdir(R.fcdir, mm);
-	thash_dump(3, R.fc);
+	thash_dump(5, R.fc);
 
 	/* export Flatconf as bot environment */
-	while ((v = thash_iter(R.fc, &k)))
+	THASH_ITER_LOOP(R.fc, v, k)
 		thash_set(R.env, mmprintf("FC_%s", asn_replace("/[^a-zA-Z0-9_]/", "_", k, mm)), v);
 
-	/* TODO: init R.modules, etc. */
+	/* scan through fc:/dir */
+	tlist = asn_fcparselist(CFG("dir/list.order"), mm);
+	TLIST_ITER_LOOP(tlist, fcel) {
+		if (!fcel->enabled) continue;
+
+		ls = asn_ls(fcel->elname, mm);
+		TLIST_ITER_LOOP(ls, v) {
+			proc = asn_replace("/\\.[a-z]+$/", "", v, mmtmp);
+			ext  = asn_replace("/.*(\\.[a-z]+)$/", "\\1", v, mmtmp);
+			path = asn_abspath(
+				mmatic_printf(mmtmp, "%s/%s", fcel->elname, v),
+				mmtmp);
+
+			if (streq(ext, ".sh") && asn_isexecutable(path))
+				type = SH;
+			else if (streq(ext, ".so"))
+				type = C;
+			else if (streq(ext, ".js"))
+				type = JS;
+			else
+				continue;
+
+			mod = mmalloc(sizeof(*mod));
+			mod->type = type;
+			mod->path = mmstrdup(path);
+			mod->rrules = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
+
+			switch (mod->type) {
+				case SH:
+					/* TODO */
+					mod->check = mod->handle = NULL;
+					break;
+				case C:
+					/* TODO */
+					mod->check = mod->handle = NULL;
+					break;
+				case JS:
+					/* TODO */
+					mod->check = mod->handle = NULL;
+					break;
+			}
+
+			dbg(5, "added '%s': %s\n", proc, mod->path);
+			thash_set(R.modules, proc, mod);
+		}
+	}
+
+	/* TODO: init R.rrules */
 
 	if (R.daemonize)
 		asn_daemonize(CFG("name"), R.pidfile);
+
+	/* flush temp mem */
+	mmatic_free(mmtmp);
+	mmtmp = mmatic_create();
 
 	dbg(3, "starting main loop\n");
 	for (;;) {
