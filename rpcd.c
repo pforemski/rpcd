@@ -23,6 +23,8 @@ __USE_LIBASN
 mmatic *mm;
 mmatic *mmtmp;
 
+enum readstatus (*readreq)();
+
 /** SIGUSR1 handler which shows mm dump */
 static void show_memory() { if (mm) mmatic_summary(mm, 0); }
 
@@ -82,6 +84,7 @@ static int parse_argv(int argc, char *argv[])
 	/* set defaults */
 	R.daemonize = 1;
 	R.pidfile = RPCD_DEFAULT_PIDFILE;
+	readreq = readcli; // TODO
 
 	for (;;) {
 		c = getopt_long(argc, argv, short_opts, long_opts, &i);
@@ -106,37 +109,6 @@ static int parse_argv(int argc, char *argv[])
 	R.fcdir = argv[optind];
 	return 1;
 }
-
-// TODO: export
-static void readcli(struct req *req, mmatic *mm)
-{
-	char line[BUFSIZ];
-	int i, j, c = 0;
-
-	/* read query from stdin (format like good old rfc822) */
-	while (fgets(line, sizeof(line), stdin)) {
-		c++;
-		if (!line[0] || line[0] == '\n') break;
-
-		for (i = 0        ; line[i] != ':';  i++) if (!line[i+1]) abort();
-		for (line[i++] = 0; line[i] == ' ';  i++) if (!line[i+1]) abort();
-		for (j = i        ; line[j] != '\n'; j++) if (!line[j+1]) abort();
-		line[j] = 0;
-
-		dbg(8, "stdin: %s='%s'\n", line, line+i);
-		if (streq(line, "jsonrpc"))
-			; // TODO?
-		else if (streq(line, "method"))
-			req->method = mmstrdup(line + i);
-		else if (streq(line, "id"))
-			req->id = mmstrdup(line + i);
-		else
-			thash_set(req->args, line, mmstrdup(line + i));
-	}
-
-	if (!c) exit(0); // TODO?
-}
-
 
 int main(int argc, char *argv[])
 {
@@ -205,8 +177,8 @@ int main(int argc, char *argv[])
 
 			switch (mod->type) {
 				case SH:
-					/* TODO */
-					mod->check = mod->handle = NULL;
+					mod->check = sh_check;
+					mod->handle = sh_handle;
 					break;
 				case C:
 					/* TODO */
@@ -241,41 +213,44 @@ int main(int argc, char *argv[])
 		req->params = MMTLIST_CREATE(NULL);
 		req->args = MMTHASH_CREATE_STR(NULL);
 		req->env = thash_clone(R.env, mmtmp);
+		req->mm = mmtmp;
 
-		readcli(req, mmtmp); // TODO
-		thash_dump(5, req->args);
+		switch (readreq(req, mmtmp)) {
+			case SKIP: continue;
+			case EXIT: exit(0); // TODO?
+			case OK:   thash_dump(5, req->args);
+		}
 
 		/* prepare reply struct */
-		rep = mmatic_alloc(sizeof(*rep), mmtmp);
+		rep = mmatic_alloc(sizeof(*rep), req->mm);
 		rep->req = req;
 		rep->type = _T_NONE;
 
-		/* TODO: find handler */
-		mod = thash_get(R.modules, req->method);
-		if (!mod) {
-			dbg(0, "no such procedure: %s\n", req->method);
-			continue;
+		/* find handler */
+		req->mod = thash_get(R.modules, req->method);
+		if (!req->mod) {
+			rep_set_error(rep, JSON_RPC_NOT_FOUND, NULL, NULL);
+			goto reply;
 		}
 
-		/* TODO: check arguments */
+		/* TODO: check regexps */
+
+		/* check arguments */
 		if (mod->check && !mod->check(req, rep)) {
-			dbg(0, "access denied\n");
-			continue;
+			if (rep->type != T_ERROR)
+				rep_set_error(rep, JSON_RPC_INVALID_INPUT, NULL, NULL);
+			goto reply;
 		}
 
-		/* TODO: handle */
+		/* handle */
 		if (mod->handle && !mod->handle(req, rep)) {
-			dbg(0, "internal error\n");
-			continue;
+			if (rep->type != T_ERROR)
+				rep_set_error(rep, JSON_RPC_INTERNAL_ERROR, NULL, NULL);
+			goto reply;
 		}
 
-		/* TODO: send the output */
-		if (rep->type == _T_NONE)
-			dbg(0, "no output\n");
-		else if (rep->type == T_STRING)
-			dbg(0, "output: %s\n", rep->data.as_string);
-		else
-			dbg(0, "output not supported yet :)\n");
+reply:
+		dbg(0, "%s", rep_tostring(rep));
 	} while (true);
 
 	return 1;
