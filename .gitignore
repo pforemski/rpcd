@@ -2,3 +2,4 @@ fc
 rpcd
 version.h
 test
+*.o
