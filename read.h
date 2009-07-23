@@ -10,6 +10,6 @@
 enum readstatus { OK, SKIP, EXIT };
 
 /** Read req->args from stdin in rfc822 format */
-enum readstatus readcli(struct req *req, mmatic *mm);
+enum readstatus readcli(struct req *req);
 
 #endif

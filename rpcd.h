@@ -18,7 +18,6 @@
 
 struct rpcd;
 struct req;
-struct rep;
 struct rrule;
 struct mod;
 
@@ -43,28 +42,13 @@ struct rpcd {
 struct req {
 	const char *id;          /** optional ID, if present */
 	const char *method;      /** called procedure */
-	tlist *params;           /** list of char *: positional parameters - ie. without keys */
-	thash *args;             /** char *key -> char *val: named arguments (for JSON-RPC 1.1WD+) */
+
+	ut *query;               /** the "params" argument */
+	ut *rep;                 /** reply, may be NULL */
 
 	struct mod *mod;         /** handler module */
 	mmatic *mm;              /** mmatic that will be flushed after handling */
 	thash *env;              /** request environment, initially cloned from R.env */
-};
-
-/** A JSON-RPC reply */
-struct rep {
-	const struct req *req;   /** reference on request */
-
-	enum json_reptype type;  /** reply object type */
-	union repdata {
-		bool        as_bool;
-		const char *as_string;
-		int         as_int;
-		double      as_double;
-		tlist      *as_tlist;
-		thash      *as_thash;
-		struct err { int code; const char *msg; const char *data; } *as_err;
-	} data;
 };
 
 /** Regexp firewall rule */
@@ -88,17 +72,16 @@ struct mod {
 
 	/** Per-module custom firewall
 	 * @retval true   continue to handler
-	 * @retval false  stop request, show rep.data.as_err or access violation error */
-	bool (*check)(const struct req *req, struct rep *rep);
+	 * @retval false  stop request, show error in rep or access violation error */
+	bool (*check)(struct req *req);
 
 	/** RPC handler
 	 * @note may be null, meaning "just check the request"
 	 * @retval true   send reply to user, set reply to "true" if empty
-	 * @retval false  stop request, show rep.data.as_err or generic internal error */
-	bool (*handle)(const struct req *req, struct rep *rep);
+	 * @retval false  stop request, show error in rep or generic internal error */
+	bool (*handle)(struct req *req);
 };
 
-#include "rep.h"
 #include "read.h"
 #include "sh.h"
 
@@ -107,6 +90,15 @@ extern mmatic *mmtmp;
 #define pbt(...) (mmatic_printf(mmtmp, __VA_ARGS__))
 
 /** Pointer at function reading new request */
-extern enum readstatus (*readreq)(struct req *req, mmatic *mm);
+extern enum readstatus (*readreq)(struct req *req);
+
+/** Sets error in req->rep
+ * @return false */
+bool error(struct req *req, int code, const char *msg, const char *data,
+	const char *cfile, unsigned int cline);
+
+#define err(code, msg, data) error(req, (code), (msg), (data), __FILE__, __LINE__)
+#define errcode(code) err((code),   NULL,  NULL)
+#define errmsg(msg)   err(    0,   (msg),  NULL)
 
 #endif

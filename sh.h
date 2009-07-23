@@ -7,7 +7,7 @@
 #ifndef _SH_H_
 #define _SH_H_
 
-bool sh_check(const struct req *req, struct rep *rep);
-bool sh_handle(const struct req *req, struct rep *rep);
+bool sh_check(struct req *req);
+bool sh_handle(struct req *req);
 
 #endif

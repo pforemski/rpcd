@@ -110,6 +110,31 @@ static int parse_argv(int argc, char *argv[])
 	return 1;
 }
 
+bool error(struct req *req, int code, const char *msg, const char *data,
+	const char *cfile, unsigned int cline)
+{
+	enum json_errcode jcode = code;
+
+	/* XXX: after conversion to enum so gcc catches missing ones */
+	if (!msg) switch (jcode) {
+		case JSON_RPC_PARSE_ERROR:     msg = "Parse error"; break;
+		case JSON_RPC_INVALID_REQUEST: msg = "Invalid Request"; break;
+		case JSON_RPC_NOT_FOUND:       msg = "Method not found"; break;
+		case JSON_RPC_INVALID_PARAMS:  msg = "Invalid params"; break;
+		case JSON_RPC_INTERNAL_ERROR:  msg = "Internal error"; break;
+		case JSON_RPC_ACCESS_DENIED:   msg = "Access denied"; break;
+		case JSON_RPC_OUT_PARSE_ERROR: msg = "Output parse error"; break;
+		case JSON_RPC_INVALID_INPUT:   msg = "Invalid input"; break;
+		case JSON_RPC_NO_OUTPUT:       msg = "No output"; break;
+	}
+
+	if (!data)
+		data = mmatic_printf(req->mm, "%s#%d\n", cfile, cline);
+
+	req->rep = ut_new_err(code, msg, data, req->mm);
+	return false;
+}
+
 int main(int argc, char *argv[])
 {
 	char _path[PATH_MAX];
@@ -119,7 +144,8 @@ int main(int argc, char *argv[])
 	tlist *tlist, *ls;
 	struct mod *mod;
 	struct req *req;
-	struct rep *rep;
+	json *js;
+	ut *jsonrep;
 
 	getcwd(_path, sizeof(_path));
 
@@ -208,49 +234,50 @@ int main(int argc, char *argv[])
 
 		/* prepare request struct */
 		req = mmatic_alloc(sizeof(*req), mmtmp);
-		req->id = "";
+		req->id = NULL;
 		req->method = "";
-		req->params = MMTLIST_CREATE(NULL);
-		req->args = MMTHASH_CREATE_STR(NULL);
 		req->env = thash_clone(R.env, mmtmp);
 		req->mm = mmtmp;
+		req->query = NULL;
+		req->rep = NULL;
 
-		switch (readreq(req, mmtmp)) {
+		/* prepare parser */
+		js = json_create(req->mm);
+
+		switch (readreq(req)) {
 			case SKIP: continue;
 			case EXIT: exit(0); // TODO?
-			case OK:   thash_dump(5, req->args);
+			case OK:   dbg(5, "%s\n", ut_char(req->query)); break;
 		}
-
-		/* prepare reply struct */
-		rep = mmatic_alloc(sizeof(*rep), req->mm);
-		rep->req = req;
-		rep->type = _T_NONE;
 
 		/* find handler */
 		req->mod = thash_get(R.modules, req->method);
-		if (!req->mod) {
-			rep_set_error(rep, JSON_RPC_NOT_FOUND, NULL, NULL);
-			goto reply;
-		}
+		if (!req->mod) { errcode(JSON_RPC_NOT_FOUND); goto reply; }
 
 		/* TODO: check regexps */
 
 		/* check arguments */
-		if (mod->check && !mod->check(req, rep)) {
-			if (rep->type != T_ERROR)
-				rep_set_error(rep, JSON_RPC_INVALID_INPUT, NULL, NULL);
+		if (mod->check && !mod->check(req)) {
+			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
 
 		/* handle */
-		if (mod->handle && !mod->handle(req, rep)) {
-			if (rep->type != T_ERROR)
-				rep_set_error(rep, JSON_RPC_INTERNAL_ERROR, NULL, NULL);
+		if (mod->handle && !mod->handle(req)) {
+			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}
 
 reply:
-		dbg(0, "%s", rep_tostring(rep));
+		if (!req->rep) errcode(JSON_RPC_NO_OUTPUT);
+
+		jsonrep = ut_new_thash(NULL, req->mm);
+		uth_add_ut(jsonrep, ut_ok(req->rep) ? "result" : "error", req->rep);
+		uth_add_char(jsonrep, "jsonrpc", "2.0");
+		if (req->id)
+			uth_add_char(jsonrep, "id", req->id);
+
+		dbg(0, "%s\n", json_print(js, jsonrep));
 	} while (true);
 
 	return 1;

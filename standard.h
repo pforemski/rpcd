@@ -22,17 +22,7 @@ enum json_errcode {
 	JSON_RPC_ACCESS_DENIED   = -32099,
 	JSON_RPC_OUT_PARSE_ERROR = -32098,
 	JSON_RPC_INVALID_INPUT   = -32097,
-};
-
-enum json_reptype {
-	_T_NONE,     /* for internal use - meaning no reply */
-	T_BOOL,      /* bool */
-	T_STRING,    /* char*  */
-	T_INT,       /* int    */
-	T_DOUBLE,    /* double */
-	T_LIST,      /* tlist* */
-	T_HASH,      /* thash* */
-	T_ERROR      /* http://groups.google.com/group/json-rpc/web/json-rpc-1-2-proposal#error-object */
+	JSON_RPC_NO_OUTPUT       = -32096,
 };
 
 #endif

@@ -6,10 +6,11 @@
 
 #include "rpcd.h"
 
-enum readstatus readcli(struct req *req, mmatic *mm)
+enum readstatus readcli(struct req *req)
 {
 	char buf[BUFSIZ];
-	xstr *input = MMXSTR_CREATE("");
+	xstr *input = xstr_create("", req->mm);
+	thash *qh;
 
 	while (fgets(buf, sizeof(buf), stdin)) {
 		if (!buf[0] || buf[0] == '\n') break;
@@ -20,14 +21,14 @@ enum readstatus readcli(struct req *req, mmatic *mm)
 	if (xstr_length(input) == 0)
 		return EXIT;
 
-	if (!thash_parse_rfc822(req->args, xstr_string(input)))
-		return SKIP; /* = parse error */
+	req->query = rfc822_parse(xstr_string(input), req->mm);
+	qh = ut_thash(req->query);
 
 	// TODO: check "jsonrpc"?
-	if (thash_get(req->args, "method"))
-		req->method = thash_get(req->args, "method");
-	else if (thash_get(req->args, "id"))
-		req->id = thash_get(req->args, "id");
+	if (thash_get(qh, "method"))
+		req->method = ut_char(thash_get(qh, "method"));
+	else if (thash_get(qh, "id"))
+		req->id = ut_char(thash_get(qh, "id"));
 
 	return OK;
 }
