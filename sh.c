@@ -49,7 +49,7 @@ bool sh_handle(struct req *req)
 		return err(rc, out, err);
 	}
 	else {
-		req->rep = rfc822_parse(out, req->mm);
+		req->rep = ut_new_thash(rfc822_parse(out, req->mm), req->mm);
 		return true;
 	}
 }

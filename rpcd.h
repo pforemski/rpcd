@@ -83,6 +83,7 @@ struct mod {
 };
 
 #include "read.h"
+#include "write.h"
 #include "sh.h"
 
 /** Temporary mmatic flushed after each query */
@@ -90,7 +91,10 @@ extern mmatic *mmtmp;
 #define pbt(...) (mmatic_printf(mmtmp, __VA_ARGS__))
 
 /** Pointer at function reading new request */
-extern enum readstatus (*readreq)(struct req *req);
+bool (*readreq)(struct req *req);
+
+/** Pointer at function writing reply */
+void (*writerep)(struct req *req);
 
 /** Sets error in req->rep
  * @return false */

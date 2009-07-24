@@ -1,7 +1,7 @@
 CFLAGS =
 LDFLAGS =
 
-OBJECTS=rpcd.o read.o sh.o
+OBJECTS=rpcd.o read.o write.o sh.o
 TARGETS=rpcd
 
 include rules.mk

@@ -5,3 +5,4 @@
 
 --
  * modules that connect as filters to the output of others
+ * monitor and report memory usage, so admin is able to set memory limits on us

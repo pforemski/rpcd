@@ -23,7 +23,8 @@ __USE_LIBASN
 mmatic *mm;
 mmatic *mmtmp;
 
-enum readstatus (*readreq)();
+bool (*readreq)();
+void (*writerep)();
 
 /** SIGUSR1 handler which shows mm dump */
 static void show_memory() { if (mm) mmatic_summary(mm, 0); }
@@ -40,6 +41,8 @@ static void help(void)
 	printf("  the application to serve.\n");
 	printf("\n");
 	printf("Options:\n");
+	printf("  --rfc822         read/write in RFC822\n");
+	printf("  --http           read/write in JSON-RPC over HTTP\n");
 	printf("  --verbose        be verbose\n");
 	printf("  --debug=<num>    set debugging level\n");
 	printf("  --foreground,-f  dont daemonize, dont syslog\n");
@@ -78,13 +81,16 @@ static int parse_argv(int argc, char *argv[])
 		{ "version",    0, NULL,  4  },
 		{ "foreground", 0, NULL,  5  },
 		{ "pidfile",    1, NULL,  6  },
+		{ "rfc822",     0, NULL,  7  },
+		{ "http",       0, NULL,  8  },
 		{ 0, 0, 0, 0 }
 	};
 
 	/* set defaults */
 	R.daemonize = 1;
 	R.pidfile = RPCD_DEFAULT_PIDFILE;
-	readreq = readcli; // TODO
+	readreq = readjson;
+	writerep = writejson;
 
 	for (;;) {
 		c = getopt_long(argc, argv, short_opts, long_opts, &i);
@@ -100,6 +106,8 @@ static int parse_argv(int argc, char *argv[])
 			case 'f':
 			case  5 : R.daemonize = 0; break;
 			case  6 : R.pidfile = optarg; break;
+			case  7 : readreq = read822;  writerep = write822; break;
+			case  8 : readreq = readhttp; writerep = writehttp; break;
 			default: help(); return 0;
 		}
 	}
@@ -129,7 +137,7 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	}
 
 	if (!data)
-		data = mmatic_printf(req->mm, "%s#%d\n", cfile, cline);
+		data = mmatic_printf(req->mm, "%s#%d", cfile, cline);
 
 	req->rep = ut_new_err(code, msg, data, req->mm);
 	return false;
@@ -145,7 +153,6 @@ int main(int argc, char *argv[])
 	struct mod *mod;
 	struct req *req;
 	json *js;
-	ut *jsonrep;
 
 	getcwd(_path, sizeof(_path));
 
@@ -234,25 +241,27 @@ int main(int argc, char *argv[])
 
 		/* prepare request struct */
 		req = mmatic_alloc(sizeof(*req), mmtmp);
-		req->id = NULL;
-		req->method = "";
-		req->env = thash_clone(R.env, mmtmp);
 		req->mm = mmtmp;
+		req->env = thash_clone(R.env, mmtmp);
+		req->id = NULL;
+		req->method = NULL;
 		req->query = NULL;
 		req->rep = NULL;
 
 		/* prepare parser */
 		js = json_create(req->mm);
 
-		switch (readreq(req)) {
-			case SKIP: continue;
-			case EXIT: exit(0); // TODO?
-			case OK:   dbg(5, "%s\n", ut_char(req->query)); break;
-		}
+		if (!readreq(req))
+			goto reply;
+		else
+			dbg(5, "%s\n", ut_char(req->query));
 
 		/* find handler */
-		req->mod = thash_get(R.modules, req->method);
-		if (!req->mod) { errcode(JSON_RPC_NOT_FOUND); goto reply; }
+		if (!req->method ||
+		    !(req->mod = thash_get(R.modules, req->method))) {
+			errcode(JSON_RPC_NOT_FOUND);
+			goto reply;
+		}
 
 		/* TODO: check regexps */
 
@@ -271,13 +280,7 @@ int main(int argc, char *argv[])
 reply:
 		if (!req->rep) errcode(JSON_RPC_NO_OUTPUT);
 
-		jsonrep = ut_new_thash(NULL, req->mm);
-		uth_add_ut(jsonrep, ut_ok(req->rep) ? "result" : "error", req->rep);
-		uth_add_char(jsonrep, "jsonrpc", "2.0");
-		if (req->id)
-			uth_add_char(jsonrep, "id", req->id);
-
-		dbg(0, "%s\n", json_print(js, jsonrep));
+		writerep(req);
 	} while (true);
 
 	return 1;
