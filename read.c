@@ -65,7 +65,7 @@ bool read822(struct req *req)
 
 	req->query = ut_new_thash(rfc822_parse(xstr_string(input), req->mm), req->mm);
 
-	return true;
+	return common(req);
 }
 
 bool readhttp(struct req *req)
