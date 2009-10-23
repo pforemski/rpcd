@@ -7,6 +7,7 @@
 #ifndef _SH_H_
 #define _SH_H_
 
+bool sh_init(const char *name);
 bool sh_check(struct req *req);
 bool sh_handle(struct req *req);
 

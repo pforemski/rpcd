@@ -30,10 +30,10 @@ struct rpcd {
 	const char *fcdir;       /** Flatconf datatree to read config from */
 	thash *fc;               /** Flatconf dump */
 
-	thash *modules;          /** char *command -> struct mod *module */
-	thash *env;              /** global environment skeleton */
-	thash *rrules;           /** char*s -> struct rrule*: the global regexp firewall */
-//	tlist *checks;           /** TODO: list of struct mod*: modules of which check() to issue on each request */
+	thash *modules;          /** char name -> struct mod */
+	thash *globals;          /** char directory -> struct mod: global modules */
+	thash *env;              /** char name -> char val: global environment skeleton */
+	thash *rrules;           /** char ruleid -> struct rrule: the global regexp firewall */
 } R;
 
 #define CFG(name) (asn_fcget(R.fc, (name)))
@@ -65,10 +65,15 @@ struct rrule {
 
 /** Module representation */
 struct mod {
-	enum modtype { C, JS, SH } type; /** implemented in? */
-	const char *path;        /** full path to module */
+	const char *name;                  /** procedure name */
+	const char *dir;                   /** directory path */
+	const char *path;                  /** full path to module file (XXX: != name/dir)*/
+	enum modtype { C, JS, SH } type;   /** implemented in? */
 
-	thash *rrules;           /** regexp rules to check only for this command */
+	thash *rrules;                     /** regexp rules to check only for this command */
+
+	/** Module initialization */
+	bool (*init)(const char *name);
 
 	/** Per-module custom firewall
 	 * @retval true   continue to handler

@@ -143,14 +143,62 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	return false;
 }
 
+/** Scan dir for modules
+ * @note stores reference to dir
+ * TODO: handle overrides (maybe via @1) */
+void scan_module_dir(const char *dir)
+{
+	struct mod *mod;
+	char *ext, *filename;
+	tlist *ls;
+
+	dbg(5, "scanning %s\n", dir);
+
+	ls = asn_ls(dir, mmtmp);
+	TLIST_ITER_LOOP(ls, filename) {
+		mod = mmzalloc(sizeof(*mod));
+		mod->dir  = dir;
+		mod->name = asn_replace("/\\.[a-z]+$/", "", filename, mm);
+		mod->path = asn_abspath(pbt("%s/%s", mod->dir, filename), mm);
+		mod->rrules = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
+
+		ext = asn_replace("/.*(\\.[a-z]+)$/", "\\1", filename, mmtmp);
+		if (streq(ext, ".sh") && asn_isexecutable(mod->path)) {
+			mod->type = SH;
+
+			mod->init = sh_init;
+			mod->check = sh_check;
+			mod->handle = sh_handle;
+		} else if (streq(ext, ".so")) {
+			mod->type = C;
+
+			/* TODO */
+			mod->init = NULL;
+			mod->check = mod->handle = NULL;
+		} else if (streq(ext, ".js")) {
+			mod->type = JS;
+
+			/* TODO */
+			mod->init = NULL;
+			mod->check = mod->handle = NULL;
+		} else {
+			/* TODO: free */
+			continue;
+		}
+
+		if (streq(mod->name, "global"))
+			thash_set(R.globals, mod->dir, mod); /* overrides: @1 */
+		else
+			thash_set(R.modules, mod->name, mod); /* overrides: @1 */
+
+		dbg(5, "added '%s': %s\n", mod->name, mod->path);
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	char _path[PATH_MAX];
-	char *v, *k, *path, *proc, *ext;
-	enum modtype type;
-	struct fcel *fcel;
-	tlist *tlist, *ls;
-	struct mod *mod;
+	char *v, *k;
 	struct req *req;
 	json *js;
 
@@ -160,7 +208,8 @@ int main(int argc, char *argv[])
 	mm = mmatic_create();
 	mmtmp = mmatic_create();
 	R.startdir = mmstrdup(_path);
-	R.modules  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
+	R.modules  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? @1 */
+	R.globals  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? @1 */
 	R.env      = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
 	R.rrules   = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
 
@@ -182,51 +231,18 @@ int main(int argc, char *argv[])
 		thash_set(R.env, mmprintf("FC_%s", asn_replace("/[^a-zA-Z0-9_]/", "_", k, mm)), v);
 
 	/* scan through fc:/dir */
-	tlist = asn_fcparselist(CFG("dir/list.order"), mm);
-	TLIST_ITER_LOOP(tlist, fcel) {
-		if (!fcel->enabled) continue;
+	{
+		tlist *dirs = asn_fcparselist(CFG("dir/list.order"), mm);
+		struct fcel *dir;
 
-		ls = asn_ls(fcel->elname, mm);
-		TLIST_ITER_LOOP(ls, v) {
-			proc = asn_replace("/\\.[a-z]+$/", "", v, mmtmp);
-			ext  = asn_replace("/.*(\\.[a-z]+)$/", "\\1", v, mmtmp);
-			path = asn_abspath(
-				mmatic_printf(mmtmp, "%s/%s", fcel->elname, v),
-				mmtmp);
-
-			if (streq(ext, ".sh") && asn_isexecutable(path))
-				type = SH;
-			else if (streq(ext, ".so"))
-				type = C;
-			else if (streq(ext, ".js"))
-				type = JS;
-			else
-				continue;
-
-			mod = mmalloc(sizeof(*mod));
-			mod->type = type;
-			mod->path = mmstrdup(path);
-			mod->rrules = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
-
-			switch (mod->type) {
-				case SH:
-					mod->check = sh_check;
-					mod->handle = sh_handle;
-					break;
-				case C:
-					/* TODO */
-					mod->check = mod->handle = NULL;
-					break;
-				case JS:
-					/* TODO */
-					mod->check = mod->handle = NULL;
-					break;
-			}
-
-			dbg(5, "added '%s': %s\n", proc, mod->path);
-			thash_set(R.modules, proc, mod);
+		TLIST_ITER_LOOP(dirs, dir) {
+			if (dir->enabled)
+				scan_module_dir(dir->elname);
 		}
 	}
+
+	/* TODO: run init() in globals */
+	/* TODO: run init() in modules */
 
 	/* TODO: init R.rrules */
 
@@ -240,13 +256,9 @@ int main(int argc, char *argv[])
 		mmtmp = mmatic_create();
 
 		/* prepare request struct */
-		req = mmatic_alloc(sizeof(*req), mmtmp);
+		req = mmatic_zalloc(sizeof(*req), mmtmp);
 		req->mm = mmtmp;
 		req->env = thash_clone(R.env, mmtmp);
-		req->id = NULL;
-		req->method = NULL;
-		req->query = NULL;
-		req->rep = NULL;
 
 		/* prepare parser */
 		js = json_create(req->mm);
@@ -265,17 +277,21 @@ int main(int argc, char *argv[])
 
 		/* TODO: check regexps */
 
+		/* TODO: run global check() */
+
 		/* check arguments */
-		if (mod->check && !mod->check(req)) {
+		if (req->mod->check && !req->mod->check(req)) {
 			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
 
 		/* handle */
-		if (mod->handle && !mod->handle(req)) {
+		if (req->mod->handle && !req->mod->handle(req)) {
 			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}
+
+		/* TODO: run global handle() */
 
 reply:
 		if (!req->rep) errcode(JSON_RPC_NO_OUTPUT);

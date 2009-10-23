@@ -6,6 +6,11 @@
 
 #include "rpcd.h"
 
+bool sh_init(const char *name)
+{
+	return true; // TODO?
+}
+
 bool sh_check(struct req *req)
 {
 	return true; // TODO?

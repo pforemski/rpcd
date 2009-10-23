@@ -18,7 +18,6 @@ static bool common(struct req *req)
 	}
 
 	/* JSON-RPC argument check */
-	// TODO: check jsonrpc=2.0?
 	args = ut_thash(req->query);
 
 	if ((ut = thash_get(args, "method")))
@@ -26,6 +25,8 @@ static bool common(struct req *req)
 
 	if ((ut = thash_get(args, "id")))
 		req->id = ut_char(ut);
+
+	/* XXX: dont check jsonrpc=2.0 */
 
 	return true;
 }
@@ -63,9 +64,11 @@ bool read822(struct req *req)
 	/* eof? */
 	if (xstr_length(input) == 0) exit(0);
 
-	req->query = ut_new_thash(rfc822_parse(xstr_string(input), req->mm), req->mm);
+	req->query = ut_new_thash(
+		rfc822_parse(xstr_string(input), req->mm),
+		req->mm);
 
-	return true;
+	return common(req);
 }
 
 bool readhttp(struct req *req)
