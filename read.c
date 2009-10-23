@@ -88,7 +88,7 @@ bool readhttp(struct req *req)
 
 	/* read headers */
 	while (fgets(buf, sizeof(buf), stdin)) {
-		if (!buf[0] || buf[0] == '\n') break;
+		if (!buf[0] || buf[0] == '\n' || buf[0] == '\r') break;
 		xstr_append(xs, buf);
 	}
 
