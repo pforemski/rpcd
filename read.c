@@ -71,6 +71,39 @@ bool read822(struct req *req)
 	return common(req);
 }
 
+/* TODO: support OPTIONS
+
+pjf@pjflap:/var/www/rpcd$ telnet localhost 80
+Trying ::1...
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+OPTIONS / HTTP/1.1
+Host: 127.0.0.1:8080
+User-Agent: Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.1.4) Gecko/20091028 Ubuntu/9.04 (jaunty) Shiretoko/3.5.4
+Accept-Language: en-us,en;q=0.5
+Accept-Encoding: gzip,deflate
+Accept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7
+Keep-Alive: 300
+Connection: keep-alive
+Origin: http://localhost
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: x-requested-with
+
+HTTP/1.1 200 OK
+Date: Mon, 02 Nov 2009 17:08:12 GMT
+Server: Apache/2.2.11 (Ubuntu) PHP/5.2.6-3ubuntu4.2 with Suhosin-Patch mod_scgi/1.12
+Allow: GET,HEAD,POST,OPTIONS,TRACE
+Vary: Accept-Encoding
+Content-Encoding: gzip
+Content-Length: 20
+Keep-Alive: timeout=15, max=100
+Connection: Keep-Alive
+Content-Type: text/html
+
+etc.
+*/
+
 bool readhttp(struct req *req)
 {
 	char buf[BUFSIZ], *ct, *cl, *ac;

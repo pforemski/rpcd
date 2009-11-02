@@ -8,7 +8,8 @@
 
 bool sh_init(const char *name)
 {
-	return true; // TODO?
+	dbg(1, "%s: initialized\n", name);
+	return true;
 }
 
 bool sh_check(struct req *req)

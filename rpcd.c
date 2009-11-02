@@ -200,6 +200,7 @@ int main(int argc, char *argv[])
 	char _path[PATH_MAX];
 	char *v, *k;
 	struct req *req;
+	struct mod *mod, *global;
 	json *js;
 
 	getcwd(_path, sizeof(_path));
@@ -241,8 +242,17 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	/* TODO: run init() in globals */
-	/* TODO: run init() in modules */
+	/* initialize global modules */
+	THASH_ITER_LOOP(R.globals, k, mod) {
+		if (mod->init)
+			mod->init(mod->name);
+	}
+
+	/* initialize modules */
+	THASH_ITER_LOOP(R.modules, k, mod) {
+		if (mod->init)
+			mod->init(mod->name);
+	}
 
 	/* TODO: init R.rrules */
 
@@ -277,7 +287,14 @@ int main(int argc, char *argv[])
 
 		/* TODO: check regexps */
 
-		/* TODO: run global check() */
+		/* find global module */
+		global = thash_get(R.globals, req->mod->dir);
+
+		/* run global check() */
+		if (global && global->check && !global->check(req)) {
+			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
+			goto reply;
+		}
 
 		/* check arguments */
 		if (req->mod->check && !req->mod->check(req)) {
@@ -291,7 +308,11 @@ int main(int argc, char *argv[])
 			goto reply;
 		}
 
-		/* TODO: run global handle() */
+		/* run global handle() */
+		if (global && global->handle && !global->handle(req)) {
+			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
+			goto reply;
+		}
 
 reply:
 		if (!req->rep) errcode(JSON_RPC_NO_OUTPUT);

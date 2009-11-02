@@ -1,7 +1,8 @@
  * always-load-me modules (for implementation firewalls of common arguments)
- * a facility like DBUS to communicate with other instances of rpcd (possibly serving the same app)
+ * a facility like DBUS to communicate with other instances (processes) of rpcd (possibly serving the same app)
    * we need a facility like mutex to synchronize concurrent access eg. to Flatconfs /etc/fc
-   * or take a multithreaded approach (embedded http server or mod_rpcd)
+   * see sem_overview(7) (remember about ipcs -l)
+ * rpcd<->module interface documentation for each lang
 
 --
  * modules that connect as filters to the output of others
