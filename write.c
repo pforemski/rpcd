@@ -4,7 +4,7 @@
  * All rights reserved
  */
 
-#include "rpcd.h"
+#include "common.h"
 
 static char *common(struct req *req)
 {
@@ -37,56 +37,77 @@ void write822(struct req *req)
 		THASH_ITER_LOOP(ut_thash(req->rep), k, v)
 			printf("%s: %s\n", k, ut_char(v));
 		write(1, "\n", 1);
-	}
-	else {
+	} else {
 		printf("result: %s\n\n", ut_char(req->rep));
 	}
 }
 
 void writehttp(struct req *req)
 {
-	char *txt = common(req), *msg;
-	int len = strlen(txt), code;
+	int code = 200;
+	char *msg = "OK";
+	char *type = "application/json-rpc";
+	char *header = "";
+	char *txt;
 
-	if (ut_ok(req->rep)) {
-		write(1, "HTTP/1.1 200 OK\n", 16);
+	if (!ut_ok(req->rep)) switch (ut_errcode(req->rep)) {
+		case JSON_RPC_PARSE_ERROR:
+		case JSON_RPC_INVALID_INPUT:
+		case JSON_RPC_INVALID_REQUEST:
+		case JSON_RPC_INVALID_PARAMS:
+			code = 400;
+			msg = "Bad Request";
+			break;
+		
+		case JSON_RPC_NOT_FOUND:
+			code = 404;
+			msg = "Not Found";
+			break;
+
+		case JSON_RPC_ACCESS_DENIED:
+			code = 403;
+			msg = "Forbidden";
+			break;
+
+		case JSON_RPC_HTTP_NOT_FOUND:
+			code = 404;
+			msg = "Not Found";
+			type = "text/html";
+			txt = "<html><body>Document not found</body></html>";
+			goto printtxt;
+
+		case JSON_RPC_HTTP_OPTIONS:
+			txt = "";
+			type = "text/plain";
+			header = "Allow: GET,POST,OPTIONS\n";
+			goto printtxt;
+
+		case JSON_RPC_HTTP_GET:
+			txt = asn_readfile(req->uripath, req->mm);
+
+			if (txt) {
+				type = "text/html"; /* FIXME */
+				goto printtxt;
+			} /* else fall-through */
+
+		default:
+			code = 500;
+			msg = "Internal Server Error";
+			break;
 	}
-	else {
-		switch (ut_errcode(req->rep)) {
-			case JSON_RPC_PARSE_ERROR:
-			case JSON_RPC_INVALID_INPUT:
-			case JSON_RPC_INVALID_REQUEST:
-			case JSON_RPC_INVALID_PARAMS:
-				code = 400;
-				msg = "Bad Request";
-				break;
-			
-			case JSON_RPC_NOT_FOUND:
-				code = 404;
-				msg = "Not Found";
-				break;
 
-			case JSON_RPC_ACCESS_DENIED:
-				code = 403;
-				msg = "Forbidden";
-				break;
+	txt = common(req);
 
-			default:
-				code = 500;
-				msg = "Internal Server Error";
-				break;
-		}
-
-		printf("HTTP/1.1 %d %s\n", code, msg);
-	}
-
+printtxt:
 	printf(
-		"Content-Type: application/json-rpc\n"
+		"HTTP/1.1 %d %s\n"
+		"Server: rpcd\n"
+		"%s"
+		"Content-Type: %s\n"
 		"Content-Length: %d\n"
-		"Connection: Keep-Alive\n"
-		"\n"
+		"Connection: Keep-Alive\n\n"
 		"%s\n",
-		len + 1, txt);
+		code, msg, header, type, strlen(txt) + 1, txt);
 
 	fflush(stdout);
 }

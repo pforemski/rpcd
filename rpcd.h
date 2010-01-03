@@ -11,7 +11,6 @@
 #define _RPCD_H_
 
 #include <libasn/lib.h>
-#include "standard.h"
 
 #define RPCD_VER "0.1"
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
@@ -20,10 +19,10 @@ struct rpcd;
 struct req;
 struct rrule;
 struct mod;
+struct api;
 
 /** Global data root */
 struct rpcd {
-	const char *startdir;    /** starting $PWD */
 	const char *pidfile;     /** path to store PID in */
 	bool daemonize;          /** start in background? */
 
@@ -40,6 +39,7 @@ struct rpcd {
 
 /** A JSON-RPC request representation */
 struct req {
+	const char *uripath;     /** full path to optional HTTP URI */
 	const char *id;          /** optional ID, if present */
 	const char *method;      /** called procedure */
 
@@ -68,38 +68,43 @@ struct mod {
 	const char *name;                  /** procedure name */
 	const char *dir;                   /** directory path */
 	const char *path;                  /** full path to module file (XXX: != name/dir)*/
-	enum modtype { C, JS, SH } type;   /** implemented in? */
+	enum modtype { C, JS, SH, SCHEME } type; /** implemented in? */
 
 	thash *rrules;                     /** regexp rules to check only for this command */
+	struct api *api;                   /** implementation */
+};
+
+/** Module API */
+struct api {
+	int magic;
+#define RPCD_MAGIC 0xDEADBEEF
 
 	/** Module initialization */
 	bool (*init)(const char *name);
 
+	/** Module deinitialization */
+	bool (*deinit)(const char *name);
+
 	/** Per-module custom firewall
+	 * @param  req    user request
+	 * @param  mm     req->mm
 	 * @retval true   continue to handler
 	 * @retval false  stop request, show error in rep or access violation error */
-	bool (*check)(struct req *req);
+	bool (*check)(struct req *req, mmatic *mm);
 
 	/** RPC handler
-	 * @note may be null, meaning "just check the request"
+	 * @note          this variable may be null, meaning "just check the request"
+	 *
+	 * @param  req    user request
+	 * @param  mm     req->mm
 	 * @retval true   send reply to user, set reply to "true" if empty
 	 * @retval false  stop request, show error in rep or generic internal error */
-	bool (*handle)(struct req *req);
+	bool (*handle)(struct req *req, mmatic *mm);
 };
-
-#include "read.h"
-#include "write.h"
-#include "sh.h"
 
 /** Temporary mmatic flushed after each query */
 extern mmatic *mmtmp;
 #define pbt(...) (mmatic_printf(mmtmp, __VA_ARGS__))
-
-/** Pointer at function reading new request */
-bool (*readreq)(struct req *req);
-
-/** Pointer at function writing reply */
-void (*writerep)(struct req *req);
 
 /** Sets error in req->rep
  * @return false */

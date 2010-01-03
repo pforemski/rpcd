@@ -23,6 +23,15 @@ enum json_errcode {
 	JSON_RPC_OUT_PARSE_ERROR = -32098,
 	JSON_RPC_INVALID_INPUT   = -32097,
 	JSON_RPC_NO_OUTPUT       = -32096,
+	JSON_RPC_HTTP_OPTIONS    = -32095,
+	JSON_RPC_HTTP_GET        = -32094,
+	JSON_RPC_HTTP_NOT_FOUND  = -32093,
+};
+
+enum http_type {
+	POST,
+	GET,
+	OPTIONS
 };
 
 #endif

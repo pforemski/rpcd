@@ -8,7 +8,9 @@
 #define _SH_H_
 
 bool sh_init(const char *name);
-bool sh_check(struct req *req);
-bool sh_handle(struct req *req);
+bool sh_check(struct req *req, mmatic *mm);
+bool sh_handle(struct req *req, mmatic *mm);
+
+extern struct api sh_api;
 
 #endif

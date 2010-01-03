@@ -4,7 +4,7 @@
  * All rights reserved
  */
 
-#include "rpcd.h"
+#include "common.h"
 
 static bool common(struct req *req)
 {
@@ -27,6 +27,9 @@ static bool common(struct req *req)
 		req->id = ut_char(ut);
 
 	/* XXX: dont check jsonrpc=2.0 */
+
+	if ((ut = thash_get(args, "params")))
+		req->query = ut;
 
 	return true;
 }
@@ -64,6 +67,8 @@ bool read822(struct req *req)
 	/* eof? */
 	if (xstr_length(input) == 0) exit(0);
 
+	dbg(8, "parsing %s\n", xstr_string(input));
+
 	req->query = ut_new_thash(
 		rfc822_parse(xstr_string(input), req->mm),
 		req->mm);
@@ -71,53 +76,32 @@ bool read822(struct req *req)
 	return common(req);
 }
 
-/* TODO: support OPTIONS
-
-pjf@pjflap:/var/www/rpcd$ telnet localhost 80
-Trying ::1...
-Trying 127.0.0.1...
-Connected to localhost.
-Escape character is '^]'.
-OPTIONS / HTTP/1.1
-Host: 127.0.0.1:8080
-User-Agent: Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.1.4) Gecko/20091028 Ubuntu/9.04 (jaunty) Shiretoko/3.5.4
-Accept-Language: en-us,en;q=0.5
-Accept-Encoding: gzip,deflate
-Accept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7
-Keep-Alive: 300
-Connection: keep-alive
-Origin: http://localhost
-Access-Control-Request-Method: POST
-Access-Control-Request-Headers: x-requested-with
-
-HTTP/1.1 200 OK
-Date: Mon, 02 Nov 2009 17:08:12 GMT
-Server: Apache/2.2.11 (Ubuntu) PHP/5.2.6-3ubuntu4.2 with Suhosin-Patch mod_scgi/1.12
-Allow: GET,HEAD,POST,OPTIONS,TRACE
-Vary: Accept-Encoding
-Content-Encoding: gzip
-Content-Length: 20
-Keep-Alive: timeout=15, max=100
-Connection: Keep-Alive
-Content-Type: text/html
-
-etc.
-*/
-
 bool readhttp(struct req *req)
 {
-	char buf[BUFSIZ], *ct, *cl, *ac;
+	enum http_type ht;
+	char first[256], buf[BUFSIZ], *ct, *cl, *ac, *uri;
 	int len;
 	xstr *xs = xstr_create("", req->mm);
 	thash *h;
 	json *js;
 
-	/* read POST /uri HTTP/1.0 */
-	if (!fgets(buf, sizeof(buf), stdin))
+	/* read query */
+	if (!fgets(first, sizeof(first), stdin) || first[0] == '\n')
 		exit(0); /* eof */
 
-	if (strncmp(buf, "POST /", 6) != 0)
-		return errmsg("Only POST supported");
+	if (strncmp(first, "POST ", 5) == 0) {
+		ht = POST;
+		uri = first + 5;
+	} else if (strncmp(first, "OPTIONS ", 8) == 0) {
+		ht = OPTIONS;
+		uri = first + 8;
+	} else if (strncmp(first, "GET ", 4) == 0) {
+		ht = GET;
+		uri = first + 4;
+	} else {
+		dbg(4, "invalid method: %s\n", first);
+		return errmsg("Invalid HTTP method");
+	}
 
 	/* read headers */
 	while (fgets(buf, sizeof(buf), stdin)) {
@@ -125,24 +109,33 @@ bool readhttp(struct req *req)
 		xstr_append(xs, buf);
 	}
 
+	/* read URI */
+	if (ht == OPTIONS) {
+		return errcode(JSON_RPC_HTTP_OPTIONS);
+	} else if (ht == GET) {
+		char *space = strchr(uri, ' ');
+		if (space) *space = '\0';
+
+		if (streq(uri, "/"))
+			uri = "/index.html";
+		else if (!asn_match(":^/[a-zA-Z0-9/]+(|\\.[a-zA-Z0-9]+)$:", uri))
+			return errcode(JSON_RPC_HTTP_NOT_FOUND);
+
+		req->uripath = mmatic_printf(req->mm, "%s%s", CFG("htdocs"), uri);
+		if (asn_isfile(req->uripath) > 0) {
+			dbg(4, "GET '%s'\n", req->uripath);
+			return errcode(JSON_RPC_HTTP_GET);
+		} else {
+			req->uripath = 0;
+			return errcode(JSON_RPC_NOT_FOUND);
+		}
+	}
+
+	/* POST - ie. normal RPC call*/
 	if (xstr_length(xs) == 0)
 		return errmsg("No HTTP headers");
-
-	h = rfc822_parse(xstr_string(xs), req->mm);
-
-	ct = thash_get(h, "Content-Type");
-	if (!ct) return errmsg("Content-Type needed");
-	if (!(streq(ct, "application/json-rpc") ||
-	      streq(ct, "application/json")     ||
-	      streq(ct, "application/jsonrequest")))
-		return errmsg("Unsupported Content-Type");
-
-	ac = thash_get(h, "Accept");
-	if (!ac) return errmsg("Accept needed");
-	if (!(streq(ac, "application/json-rpc") ||
-	      streq(ac, "application/json")     ||
-	      streq(ac, "application/jsonrequest")))
-		return errmsg("Unsupported Accept");
+	else
+		h = rfc822_parse(xstr_string(xs), req->mm);
 
 	cl = thash_get(h, "Content-Length");
 	if (!cl) return errmsg("Content-Length needed");
@@ -153,6 +146,16 @@ bool readhttp(struct req *req)
 
 	if (fread(buf, 1, len, stdin) != len)
 		return errmsg("Invalid Content-Length");
+
+	ct = thash_get(h, "Content-Type");
+	if (!ct) return errmsg("Content-Type needed");
+	if (strncmp(ct, "application/json", 16) != 0)
+		return errmsg("Unsupported Content-Type");
+
+	ac = thash_get(h, "Accept");
+	if (!ac) return errmsg("Accept needed");
+	if (!asn_match(":application/json:", ac))
+		return errmsg("Unsupported Accept");
 
 	buf[len+1] = '\0';
 	js = json_create(req->mm);

@@ -4,7 +4,7 @@
  * All rights reserved
  */
 
-#include "rpcd.h"
+#include "common.h"
 
 bool sh_init(const char *name)
 {
@@ -12,15 +12,14 @@ bool sh_init(const char *name)
 	return true;
 }
 
-bool sh_check(struct req *req)
+bool sh_check(struct req *req, mmatic *mm)
 {
 	return true; // TODO?
 }
 
 // FIXME
-bool sh_handle(struct req *req)
+bool sh_handle(struct req *req, mmatic *mm)
 {
-	mmatic *mm = req->mm;
 	thash *env = NULL, *qh = NULL;
 	tlist *args = NULL, *qp = NULL;
 	ut *v;
@@ -59,3 +58,11 @@ bool sh_handle(struct req *req)
 		return true;
 	}
 }
+
+struct api sh_api = {
+	.magic  = RPCD_MAGIC,
+	.init   = sh_init,
+	.deinit = NULL,
+	.check  = sh_check,
+	.handle = sh_handle,
+};

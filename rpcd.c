@@ -13,18 +13,20 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <signal.h>
-
+#include <dlfcn.h>
 #include <libasn/lib.h>
-
-#include "rpcd.h"
+#include "common.h"
 
 __USE_LIBASN
 
 mmatic *mm;
 mmatic *mmtmp;
 
-bool (*readreq)();
-void (*writerep)();
+/** Pointer at function reading new request */
+bool (*readreq)(struct req *req);
+
+/** Pointer at function writing reply */
+void (*writerep)(struct req *req);
 
 /** SIGUSR1 handler which shows mm dump */
 static void show_memory() { if (mm) mmatic_summary(mm, 0); }
@@ -134,6 +136,9 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 		case JSON_RPC_OUT_PARSE_ERROR: msg = "Output parse error"; break;
 		case JSON_RPC_INVALID_INPUT:   msg = "Invalid input"; break;
 		case JSON_RPC_NO_OUTPUT:       msg = "No output"; break;
+		case JSON_RPC_HTTP_GET:
+		case JSON_RPC_HTTP_OPTIONS:    msg = "OK"; break;
+		case JSON_RPC_HTTP_NOT_FOUND:  msg = "Document not found"; break;
 	}
 
 	if (!data)
@@ -165,24 +170,28 @@ void scan_module_dir(const char *dir)
 		ext = asn_replace("/.*(\\.[a-z]+)$/", "\\1", filename, mmtmp);
 		if (streq(ext, ".sh") && asn_isexecutable(mod->path)) {
 			mod->type = SH;
-
-			mod->init = sh_init;
-			mod->check = sh_check;
-			mod->handle = sh_handle;
+			mod->api = &sh_api;
 		} else if (streq(ext, ".so")) {
 			mod->type = C;
 
-			/* TODO */
-			mod->init = NULL;
-			mod->check = mod->handle = NULL;
+			void *so = dlopen(mod->path, RTLD_NOW | RTLD_GLOBAL);
+			if (!so) {
+				dbg(0, "loading module '%s' failed: %s\n", mod->name, dlerror());
+				goto skip;
+			}
+
+			mod->api = dlsym(so, pbt("%s_module", mod->name));
+			if (!mod->api) {
+				dbg(0, "loading module '%s' failed: %s\n", mod->name, dlerror());
+				goto skip;
+			}
 		} else if (streq(ext, ".js")) {
 			mod->type = JS;
-
-			/* TODO */
-			mod->init = NULL;
-			mod->check = mod->handle = NULL;
+		} else if (streq(ext, ".scheme")) {
+			mod->type = SCHEME;
 		} else {
-			/* TODO: free */
+skip:
+			/* XXX: static mem leak - shouldnt be too severe */
 			continue;
 		}
 
@@ -191,24 +200,20 @@ void scan_module_dir(const char *dir)
 		else
 			thash_set(R.modules, mod->name, mod); /* overrides: @1 */
 
-		dbg(5, "added '%s': %s\n", mod->name, mod->path);
+		dbg(3, "module '%s' loaded: %s\n", mod->name, mod->path);
 	}
 }
 
 int main(int argc, char *argv[])
 {
-	char _path[PATH_MAX];
 	char *v, *k;
 	struct req *req;
 	struct mod *mod, *global;
 	json *js;
 
-	getcwd(_path, sizeof(_path));
-
 	/* init some vars */
 	mm = mmatic_create();
 	mmtmp = mmatic_create();
-	R.startdir = mmstrdup(_path);
 	R.modules  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? @1 */
 	R.globals  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? @1 */
 	R.env      = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
@@ -244,14 +249,14 @@ int main(int argc, char *argv[])
 
 	/* initialize global modules */
 	THASH_ITER_LOOP(R.globals, k, mod) {
-		if (mod->init)
-			mod->init(mod->name);
+		if (mod->api->init)
+			mod->api->init(mod->name);
 	}
 
 	/* initialize modules */
 	THASH_ITER_LOOP(R.modules, k, mod) {
-		if (mod->init)
-			mod->init(mod->name);
+		if (mod->api->init)
+			mod->api->init(mod->name);
 	}
 
 	/* TODO: init R.rrules */
@@ -275,7 +280,7 @@ int main(int argc, char *argv[])
 
 		if (!readreq(req))
 			goto reply;
-		else
+		else if (req->query)
 			dbg(5, "%s\n", ut_char(req->query));
 
 		/* find handler */
@@ -285,31 +290,35 @@ int main(int argc, char *argv[])
 			goto reply;
 		}
 
+		asnsert(req->mod->api);
+
 		/* TODO: check regexps */
 
 		/* find global module */
 		global = thash_get(R.globals, req->mod->dir);
 
 		/* run global check() */
-		if (global && global->check && !global->check(req)) {
+		if (global && global->api &&
+		    global->api->check && !global->api->check(req, req->mm)) {
 			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
 
 		/* check arguments */
-		if (req->mod->check && !req->mod->check(req)) {
+		if (req->mod->api->check && !req->mod->api->check(req, req->mm)) {
 			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
 
 		/* handle */
-		if (req->mod->handle && !req->mod->handle(req)) {
+		if (req->mod->api->handle && !req->mod->api->handle(req, req->mm)) {
 			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}
 
 		/* run global handle() */
-		if (global && global->handle && !global->handle(req)) {
+		if (global && global->api &&
+		    global->api->handle && !global->api->handle(req, req->mm)) {
 			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}

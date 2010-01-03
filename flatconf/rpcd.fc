@@ -1,5 +1,6 @@
 order = {
 	"name"
+	"htdocs"
 	"dir"
 	"limit"
 }
