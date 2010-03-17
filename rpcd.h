@@ -1,7 +1,7 @@
 /*
  * rpcd - a JSON-RPC bridge
  *
- * Copyright (C) 2009 ASN Sp. z o.o.
+ * Copyright (C) 2009-2010 ASN Sp. z o.o.
  * Author: Pawel Foremski <pjf@asn.pl>
  *
  * All rights reserved
@@ -76,14 +76,13 @@ struct mod {
 
 /** Module API */
 struct api {
-	int magic;
+	int magic;                         /** for sanity checks */
 #define RPCD_MAGIC 0xDEADBEEF
-
 	/** Module initialization */
-	bool (*init)(const char *name);
+	bool (*init)(struct mod *mod);
 
 	/** Module deinitialization */
-	bool (*deinit)(const char *name);
+	bool (*deinit)(struct mod *mod);
 
 	/** Per-module custom firewall
 	 * @param  req    user request
@@ -100,6 +99,8 @@ struct api {
 	 * @retval true   send reply to user, set reply to "true" if empty
 	 * @retval false  stop request, show error in rep or generic internal error */
 	bool (*handle)(struct req *req, mmatic *mm);
+
+	void *prv;                         /** implementation-dependent use */
 };
 
 /** Temporary mmatic flushed after each query */

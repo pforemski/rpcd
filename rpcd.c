@@ -1,7 +1,7 @@
 /*
  * rpcd - a JSON-RPC server
  *
- * Copyright (C) 2009 ASN Sp. z o.o.
+ * Copyright (C) 2009-2010 ASN Sp. z o.o.
  * Author: Pawel Foremski <pjf@asn.pl>
  *
  * All rights reserved
@@ -58,7 +58,7 @@ static void help(void)
 static void version(void)
 {
 	printf("rpcd %s\n", RPCD_VER);
-	printf("Copyright (C) 2009 ASN Sp. z o.o.\n");
+	printf("Copyright (C) 2009-2010 ASN Sp. z o.o.\n");
 	printf("All rights reserved.\n");
 	return;
 }
@@ -250,13 +250,13 @@ int main(int argc, char *argv[])
 	/* initialize global modules */
 	THASH_ITER_LOOP(R.globals, k, mod) {
 		if (mod->api->init)
-			mod->api->init(mod->name);
+			mod->api->init(mod);
 	}
 
 	/* initialize modules */
 	THASH_ITER_LOOP(R.modules, k, mod) {
 		if (mod->api->init)
-			mod->api->init(mod->name);
+			mod->api->init(mod);
 	}
 
 	/* TODO: init R.rrules */

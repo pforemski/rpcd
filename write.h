@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 ASN Sp. z o.o.
+ * Copyright (C) 2009-2010 ASN Sp. z o.o.
  * Author: Pawel Foremski <pjf@asn.pl>
  * All rights reserved
  */

@@ -1,14 +1,14 @@
 /*
- * Copyright (C) 2009 ASN Sp. z o.o.
+ * Copyright (C) 2009-2010 ASN Sp. z o.o.
  * Author: Pawel Foremski <pjf@asn.pl>
  * All rights reserved
  */
 
 #include "common.h"
 
-bool sh_init(const char *name)
+bool sh_init(struct mod *mod)
 {
-	dbg(1, "%s: initialized\n", name);
+	dbg(1, "%s: initialized\n", mod->name);
 	return true;
 }
 
