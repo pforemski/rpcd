@@ -78,6 +78,7 @@ struct mod {
 struct api {
 	int magic;                         /** for sanity checks */
 #define RPCD_MAGIC 0xDEADBEEF
+
 	/** Module initialization */
 	bool (*init)(struct mod *mod);
 

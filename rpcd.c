@@ -43,12 +43,15 @@ static void help(void)
 	printf("  the application to serve.\n");
 	printf("\n");
 	printf("Options:\n");
-	printf("  --rfc822         read/write in RFC822\n");
+	printf("  --json           read/write in JSON-RPC (default)\n");
 	printf("  --http           read/write in JSON-RPC over HTTP\n");
-	printf("  --verbose        be verbose\n");
-	printf("  --debug=<num>    set debugging level\n");
+	printf("  --rfc822         read/write in RFC822\n");
+	printf("\n");
 	printf("  --foreground,-f  dont daemonize, dont syslog\n");
 	printf("  --pidfile=<path> where to write daemon PID to [%s]\n", RPCD_DEFAULT_PIDFILE);
+	printf("  --verbose        be verbose (alias for --debug=5)\n");
+	printf("  --debug=<num>    set debugging level\n");
+	printf("\n");
 	printf("  --help,-h        show this usage help screen\n");
 	printf("  --version,-v     show version and copying information\n");
 	return;
@@ -85,6 +88,7 @@ static int parse_argv(int argc, char *argv[])
 		{ "pidfile",    1, NULL,  6  },
 		{ "rfc822",     0, NULL,  7  },
 		{ "http",       0, NULL,  8  },
+		{ "json",       0, NULL,  9  },
 		{ 0, 0, 0, 0 }
 	};
 
@@ -110,6 +114,7 @@ static int parse_argv(int argc, char *argv[])
 			case  6 : R.pidfile = optarg; break;
 			case  7 : readreq = read822;  writerep = write822; break;
 			case  8 : readreq = readhttp; writerep = writehttp; break;
+			case  9 : readreq = readjson; writerep = writejson; break;
 			default: help(); return 0;
 		}
 	}
@@ -120,6 +125,7 @@ static int parse_argv(int argc, char *argv[])
 	return 1;
 }
 
+/** Generate an error JSON-RPC response based on error code */
 bool error(struct req *req, int code, const char *msg, const char *data,
 	const char *cfile, unsigned int cline)
 {
@@ -148,9 +154,12 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	return false;
 }
 
-/** Scan dir for modules
+/** Scan given directory for modules and load them
+ *
  * @note stores reference to dir
- * TODO: handle overrides (maybe via @1) */
+ * @TODO handle module overrides (maybe via @1)
+ * @TODO load 'global' modules as first (due to RTLD_NOW)
+ */
 void scan_module_dir(const char *dir)
 {
 	struct mod *mod;
@@ -187,12 +196,20 @@ void scan_module_dir(const char *dir)
 			}
 		} else if (streq(ext, ".js")) {
 			mod->type = JS;
-		} else if (streq(ext, ".scheme")) {
+		} else if (streq(ext, ".scm")) {
 			mod->type = SCHEME;
 		} else {
 skip:
-			/* XXX: static mem leak - shouldnt be too severe */
+			/* XXX static mem leak - shouldnt be too severe */
 			continue;
+		}
+
+		if (mod->api == NULL) {
+			dbg(0, "loading '%s' failed: no API\n", mod->path);
+			goto skip;
+		} else if (mod->api->magic != RPCD_MAGIC) {
+			dbg(0, "loading '%s' failed: invalid API magic\n", mod->path);
+			goto skip;
 		}
 
 		if (streq(mod->name, "global"))
@@ -278,9 +295,11 @@ int main(int argc, char *argv[])
 		/* prepare parser */
 		js = json_create(req->mm);
 
+		/* read the request */
 		if (!readreq(req))
 			goto reply;
-		else if (req->query)
+
+		if (req->query)
 			dbg(5, "%s\n", ut_char(req->query));
 
 		/* find handler */
@@ -290,16 +309,13 @@ int main(int argc, char *argv[])
 			goto reply;
 		}
 
-		asnsert(req->mod->api);
-
 		/* TODO: check regexps */
 
 		/* find global module */
 		global = thash_get(R.globals, req->mod->dir);
 
 		/* run global check() */
-		if (global && global->api &&
-		    global->api->check && !global->api->check(req, req->mm)) {
+		if (global && global->api->check && !global->api->check(req, req->mm)) {
 			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
@@ -317,8 +333,7 @@ int main(int argc, char *argv[])
 		}
 
 		/* run global handle() */
-		if (global && global->api &&
-		    global->api->handle && !global->api->handle(req, req->mm)) {
+		if (global && global->api->handle && !global->api->handle(req, req->mm)) {
 			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}
