@@ -28,6 +28,19 @@ bool (*readreq)(struct req *req);
 /** Pointer at function writing reply */
 void (*writerep)(struct req *req);
 
+/****************************************************/
+
+static void free_mod(void *ptr)
+{
+	struct mod *mod = (struct mod *) ptr;
+
+	mmfreeptr(mod->name);
+	mmfreeptr(mod->dir);
+	mmfreeptr(mod->path);
+}
+
+/****************************************************/
+
 /** SIGUSR1 handler which shows mm dump */
 static void show_memory() { if (mm) mmatic_summary(mm, 0); }
 
@@ -154,70 +167,93 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	return false;
 }
 
-/** Scan given directory for modules and load them
+/** Load given module and register in given db
  *
- * @note stores reference to dir
- * @TODO handle module overrides (maybe via @1)
- * @TODO load 'global' modules as first (due to RTLD_NOW)
+ * @param dir       directory containing module file
+ * @param filename  name of module file (relative to dir)
+ * @return          pointer to struct mod @mm
+ * @retval NULL     loading failed
  */
-void scan_module_dir(const char *dir)
+static struct mod *load_module(const char *dir, const char *filename)
 {
 	struct mod *mod;
-	char *ext, *filename;
-	tlist *ls;
+	mod = mmatic_zalloc(sizeof(*mod), mm);
+	mod->dir  = mmatic_strdup(dir, mm);
+	mod->name = asn_replace("/\\.[a-z]+$/", "", filename, mm);
+	mod->path = asn_abspath(pbt("%s/%s", mod->dir, filename), mm);
+
+	if (asn_isfile(mod->path) < 0)
+		goto skip;
+
+	char *ext = asn_replace("/.*(\\.[a-z]+)$/", "\\1", filename, mmtmp);
+	if (streq(ext, ".sh")) {
+		if (!asn_isexecutable(mod->path)) {
+			dbg(1, "%s: exec bit not set - skipping\n", mod->path);
+			goto skip;
+		}
+
+		mod->type = SH;
+		mod->api = &sh_api;
+	} else if (streq(ext, ".so")) {
+		mod->type = C;
+
+		void *so = dlopen(mod->path, RTLD_NOW | RTLD_GLOBAL);
+		if (!so) {
+			dbg(0, "%s failed: %s\n", mod->name, dlerror());
+			goto skip;
+		}
+
+		mod->api = dlsym(so, pbt("%s_module", mod->name));
+		if (!mod->api) {
+			dbg(0, "%s failed: %s\n", mod->name, dlerror());
+			goto skip;
+		}
+	} else if (streq(ext, ".js")) {
+		dbg(1, "%s: JS not supported yet\n");
+		goto skip;
+	} else goto skip;
+
+	if (mod->api->magic != RPCD_MAGIC) {
+		dbg(0, "loading '%s' failed: invalid API magic\n", mod->path);
+		goto skip;
+	}
+
+	asnsert(mod->api);
+	dbg(1, "loaded %s from %s\n", mod->name, mod->dir);
+
+	return mod;
+
+skip:
+	free_mod((void *) mod);
+	return NULL;
+}
+
+/** Scan given directory for modules and load them */
+static void scan_dir(const char *dir)
+{
+	char *filename;
+	struct mod *mod;
 
 	dbg(5, "scanning %s\n", dir);
+	tlist *ls = asn_ls(dir, mmtmp);
 
-	ls = asn_ls(dir, mmtmp);
+	/* load globals first */
 	TLIST_ITER_LOOP(ls, filename) {
-		mod = mmzalloc(sizeof(*mod));
-		mod->dir  = dir;
-		mod->name = asn_replace("/\\.[a-z]+$/", "", filename, mm);
-		mod->path = asn_abspath(pbt("%s/%s", mod->dir, filename), mm);
-		mod->rrules = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
+		if (asn_match(RPCD_GLOBAL_REGEX, filename)) {
+			tlist_remove(ls);
 
-		ext = asn_replace("/.*(\\.[a-z]+)$/", "\\1", filename, mmtmp);
-		if (streq(ext, ".sh") && asn_isexecutable(mod->path)) {
-			mod->type = SH;
-			mod->api = &sh_api;
-		} else if (streq(ext, ".so")) {
-			mod->type = C;
-
-			void *so = dlopen(mod->path, RTLD_NOW | RTLD_GLOBAL);
-			if (!so) {
-				dbg(0, "loading module '%s' failed: %s\n", mod->name, dlerror());
-				goto skip;
-			}
-
-			mod->api = dlsym(so, pbt("%s_module", mod->name));
-			if (!mod->api) {
-				dbg(0, "loading module '%s' failed: %s\n", mod->name, dlerror());
-				goto skip;
-			}
-		} else if (streq(ext, ".js")) {
-			mod->type = JS;
-		} else if (streq(ext, ".scm")) {
-			mod->type = SCHEME;
-		} else {
-skip:
-			/* XXX static mem leak - shouldnt be too severe */
-			continue;
+			mod = load_module(dir, filename);
+			if (mod)
+				thash_set(R.globals, mod->dir, mod);
 		}
+	}
 
-		if (mod->api == NULL) {
-			dbg(0, "loading '%s' failed: no API\n", mod->path);
-			goto skip;
-		} else if (mod->api->magic != RPCD_MAGIC) {
-			dbg(0, "loading '%s' failed: invalid API magic\n", mod->path);
-			goto skip;
-		}
+	/* load the rest */
+	TLIST_ITER_LOOP(ls, filename) {
+		mod = load_module(dir, filename);
 
-		if (streq(mod->name, "global"))
-			thash_set(R.globals, mod->dir, mod); /* overrides: @1 */
-		else
-			thash_set(R.modules, mod->name, mod); /* overrides: @1 */
-
-		dbg(3, "module '%s' loaded: %s\n", mod->name, mod->path);
+		if (mod)
+			thash_set(R.modules, mod->name, mod);
 	}
 }
 
@@ -231,10 +267,9 @@ int main(int argc, char *argv[])
 	/* init some vars */
 	mm = mmatic_create();
 	mmtmp = mmatic_create();
-	R.modules  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? @1 */
-	R.globals  = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? @1 */
+	R.modules  = MMTHASH_CREATE_STR(free_mod);
+	R.globals  = MMTHASH_CREATE_STR(free_mod);
 	R.env      = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
-	R.rrules   = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
 
 	/* setup signal handling */
 	signal(SIGPIPE, SIG_IGN);
@@ -260,7 +295,7 @@ int main(int argc, char *argv[])
 
 		TLIST_ITER_LOOP(dirs, dir) {
 			if (dir->enabled)
-				scan_module_dir(dir->elname);
+				scan_dir(dir->elname);
 		}
 	}
 

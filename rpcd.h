@@ -15,9 +15,10 @@
 #define RPCD_VER "0.1"
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
 
+#define RPCD_GLOBAL_REGEX "/^global\\.[a-z]+$/"
+
 struct rpcd;
 struct req;
-struct rrule;
 struct mod;
 struct api;
 
@@ -32,7 +33,6 @@ struct rpcd {
 	thash *modules;          /** char name -> struct mod */
 	thash *globals;          /** char directory -> struct mod: global modules */
 	thash *env;              /** char name -> char val: global environment skeleton */
-	thash *rrules;           /** char ruleid -> struct rrule: the global regexp firewall */
 } R;
 
 #define CFG(name) (asn_fcget(R.fc, (name)))
@@ -51,27 +51,15 @@ struct req {
 	thash *env;              /** request environment, initially cloned from R.env */
 };
 
-/** Regexp firewall rule */
-struct rrule {
-	bool cgi;                /** match CGI requests */
-	bool cli;                /** match CLI requests */
-	bool lib;                /** match direct (library) requests */
-	tlist *users;            /** if not NULL - match reqs from these users only */
-
-	const char *var;         /** name of variable to check */
-	tlist *regexp;           /** list of char*s: regular expressions that the value must satisfy */
-	tlist *nregexp;          /** same as regexp, but negative (match = fail) */
-};
-
 /** Module representation */
 struct mod {
-	const char *name;                  /** procedure name */
-	const char *dir;                   /** directory path */
-	const char *path;                  /** full path to module file (XXX: != name/dir)*/
-	enum modtype { C, JS, SH, SCHEME } type; /** implemented in? */
+	char *name;                        /** procedure name */
+	char *dir;                         /** directory path */
+	char *path;                        /** full path to module file (XXX: != dir/name)*/
 
-	thash *rrules;                     /** regexp rules to check only for this command */
-	struct api *api;                   /** implementation */
+	enum modtype { C, JS, SH } type;   /** implemented in? */
+
+	struct api *api;                   /** implementation API */
 };
 
 /** Module API */

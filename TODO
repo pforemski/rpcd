@@ -1,26 +1,26 @@
- * change naming convention of "global.so"
-   * start with e.g. '=' to make it first in asn_ls()
-   * let for more than one global module per directory - cool hook for quick&dirty hacking in bash
- * "superglobal" modules for whole rpcd instance?
  * documentation
 
  * add identity info to request, pass to modules
-   * HTTP headers
-   * JSON-RPC query parameters
-   * SCGI variables from HTTP server
+   * HTTP Auth headers
  * add authentication layer (fetch group if available)
    * always-auth (for HTTP servers - CGI, SCGI, etc)
    * Flatconf
-   * system (shadow)
  * simple authorization scheme: require auth-user
 
  * flatconf/:
    * move I/O format selection to flatconf - needed for AAA config which is dependent on this
    * authentication config
    * authorization config
-   * dir.fc: let for parameter passing to modules
-   * limit.fc: remove
 
+--------------------------------
+
+ * SCGI interface
+ * AAA
+   * pass SCGI auth info
+   * system auth (shadow)
+ * flatconf/
+   * dir.fc: let for parameter passing to modules
+ * superglobal modules for rpcd extensions (custom AAA)
  * a facility like DBUS to communicate with other instances (processes) of rpcd (possibly serving the same app)
    * we need a facility like mutex to synchronize concurrent access eg. to Flatconfs /etc/fc
    * see sem_overview(7) (remember about ipcs -l)
