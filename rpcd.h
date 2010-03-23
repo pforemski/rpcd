@@ -27,6 +27,9 @@ struct rpcd {
 	const char *pidfile;     /** path to store PID in */
 	bool daemonize;          /** start in background? */
 
+	bool noauth;             /** if true, rpcd was started with --noauth */
+	bool auth;               /** all in all, is authentication enabled? */
+
 	const char *fcdir;       /** Flatconf datatree to read config from */
 	thash *fc;               /** Flatconf dump */
 
@@ -49,6 +52,10 @@ struct req {
 	struct mod *mod;         /** handler module */
 	mmatic *mm;              /** mmatic that will be flushed after handling */
 	thash *env;              /** request environment, initially cloned from R.env */
+
+	const char *claim_user;  /** requester claims to be this user */
+	const char *claim_pass;  /** and gives us this password to verify him */
+	struct user *user;       /** if not null, points at authenticated user */
 };
 
 /** Module representation */
@@ -91,6 +98,18 @@ struct api {
 
 	void *prv;                         /** implementation-dependent use */
 };
+
+/** rpcd user */
+struct user {
+	const char *name;                  /** user name */
+	const char *pass;                  /** password, if available */
+	tlist *groups;                     /** groups user belong to: tlist of char * */
+};
+
+/********************************************************************/
+
+/** Global mmatic flushed on program end */
+extern mmatic *mm;
 
 /** Temporary mmatic flushed after each query */
 extern mmatic *mmtmp;

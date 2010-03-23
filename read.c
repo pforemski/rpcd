@@ -6,7 +6,7 @@
 
 #include "common.h"
 
-static bool common(struct req *req)
+static int common(struct req *req)
 {
 	thash *args;
 	ut *ut;
@@ -34,7 +34,7 @@ static bool common(struct req *req)
 	return true;
 }
 
-bool readjson(struct req *req)
+int readjson(struct req *req)
 {
 	char buf[BUFSIZ];
 	xstr *xs = xstr_create("", req->mm);
@@ -54,7 +54,7 @@ bool readjson(struct req *req)
 	return common(req);
 }
 
-bool read822(struct req *req)
+int read822(struct req *req)
 {
 	char buf[BUFSIZ];
 	xstr *input = xstr_create("", req->mm);
@@ -76,10 +76,10 @@ bool read822(struct req *req)
 	return common(req);
 }
 
-bool readhttp(struct req *req)
+int readhttp(struct req *req)
 {
 	enum http_type ht;
-	char first[256], buf[BUFSIZ], *ct, *cl, *ac, *uri;
+	char first[256], buf[BUFSIZ], *ct, *cl, *ac, *uri, *auth;
 	int len;
 	xstr *xs = xstr_create("", req->mm);
 	thash *h;
@@ -109,43 +109,52 @@ bool readhttp(struct req *req)
 		xstr_append(xs, buf);
 	}
 
-	/* read URI */
+	h = rfc822_parse(xstr_string(xs), req->mm);
+
+	/* fetch authentication information ASAP */
+	auth = thash_get(h, "Authorization");
+	if (auth && strncmp(auth, "Basic ", 6) == 0) {
+		xstr *ad = asn_b64dec(auth+6, req->mm);
+		char *pass = strchr(xstr_string(ad), ':');
+
+		if (pass) {
+			*pass++ = '\0';
+			req->claim_user = xstr_string(ad);
+			req->claim_pass = pass;
+		}
+	}
+
 	if (ht == OPTIONS) {
 		return errcode(JSON_RPC_HTTP_OPTIONS);
-	} else if (ht == GET) {
+	}
+
+	/* read URI */
+	if (ht == GET) {
 		char *space = strchr(uri, ' ');
 		if (space) *space = '\0';
 
-		if (streq(uri, "/"))
+		if (streq(uri, "/")) {
 			uri = "/index.html";
-		else if (!asn_match(":^/[a-zA-Z0-9/]+(|\\.[a-zA-Z0-9]+)$:", uri))
-			return errcode(JSON_RPC_HTTP_NOT_FOUND);
+		} else if (!asn_match(":^/[a-zA-Z0-9/]+(|\\.[a-zA-Z0-9]+)$:", uri)) {
+			dbg(4, "invalid uri: '%s'\n", uri);
+			errcode(JSON_RPC_HTTP_NOT_FOUND);
+			return 2;
+		}
 
 		req->uripath = mmatic_printf(req->mm, "%s%s", CFG("htdocs"), uri);
 		if (asn_isfile(req->uripath) > 0) {
 			dbg(4, "GET '%s'\n", req->uripath);
-			return errcode(JSON_RPC_HTTP_GET);
+			errcode(JSON_RPC_HTTP_GET);
 		} else {
 			req->uripath = 0;
-			return errcode(JSON_RPC_NOT_FOUND);
+			dbg(4, "not found: '%s'\n", uri);
+			errcode(JSON_RPC_HTTP_NOT_FOUND);
 		}
+
+		return 2;
 	}
 
-	/* POST - ie. normal RPC call*/
-	if (xstr_length(xs) == 0)
-		return errmsg("No HTTP headers");
-	else
-		h = rfc822_parse(xstr_string(xs), req->mm);
-
-	cl = thash_get(h, "Content-Length");
-	if (!cl) return errmsg("Content-Length needed");
-
-	len = atoi(cl);
-	if (len < 0 || len > BUFSIZ - 1)
-		return errmsg("Unsupported Content-Length");
-
-	if (fread(buf, 1, len, stdin) != len)
-		return errmsg("Invalid Content-Length");
+	/* = POST - ie. normal RPC call = */
 
 	ct = thash_get(h, "Content-Type");
 	if (!ct) return errmsg("Content-Type needed");
@@ -157,7 +166,20 @@ bool readhttp(struct req *req)
 	if (!asn_match(":application/json:", ac))
 		return errmsg("Unsupported Accept");
 
-	buf[len+1] = '\0';
+	/* read the query */
+	cl = thash_get(h, "Content-Length");
+	if (!cl) return errmsg("Content-Length needed");
+
+	len = atoi(cl);
+	if (len < 0 || len > BUFSIZ - 1)
+		return errmsg("Unsupported Content-Length");
+
+	if (fread(buf, 1, len, stdin) != len)
+		return errmsg("Invalid Content-Length");
+	else
+		buf[len+1] = '\0';
+
+	/* parse the query */
 	js = json_create(req->mm);
 	req->query = json_parse(js, buf);
 

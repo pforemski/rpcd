@@ -23,10 +23,13 @@ mmatic *mm;
 mmatic *mmtmp;
 
 /** Pointer at function reading new request */
-bool (*readreq)(struct req *req);
+int (*readreq)(struct req *req);
 
 /** Pointer at function writing reply */
 void (*writerep)(struct req *req);
+
+/** Pointer at function handling authentication, may be NULL */
+struct user *(*auth)(struct req *req);
 
 /****************************************************/
 
@@ -59,6 +62,7 @@ static void help(void)
 	printf("  --json           read/write in JSON-RPC (default)\n");
 	printf("  --http           read/write in JSON-RPC over HTTP\n");
 	printf("  --rfc822         read/write in RFC822\n");
+	printf("  --noauth         disable auth\n");
 	printf("\n");
 	printf("  --foreground,-f  dont daemonize, dont syslog\n");
 	printf("  --pidfile=<path> where to write daemon PID to [%s]\n", RPCD_DEFAULT_PIDFILE);
@@ -102,12 +106,14 @@ static int parse_argv(int argc, char *argv[])
 		{ "rfc822",     0, NULL,  7  },
 		{ "http",       0, NULL,  8  },
 		{ "json",       0, NULL,  9  },
+		{ "noauth",     0, NULL, 10  },
 		{ 0, 0, 0, 0 }
 	};
 
 	/* set defaults */
 	R.daemonize = 1;
 	R.pidfile = RPCD_DEFAULT_PIDFILE;
+	R.noauth = false;
 	readreq = readjson;
 	writerep = writejson;
 
@@ -128,6 +134,7 @@ static int parse_argv(int argc, char *argv[])
 			case  7 : readreq = read822;  writerep = write822; break;
 			case  8 : readreq = readhttp; writerep = writehttp; break;
 			case  9 : readreq = readjson; writerep = writejson; break;
+			case 10 : R.noauth = true; break;
 			default: help(); return 0;
 		}
 	}
@@ -138,36 +145,9 @@ static int parse_argv(int argc, char *argv[])
 	return 1;
 }
 
-/** Generate an error JSON-RPC response based on error code */
-bool error(struct req *req, int code, const char *msg, const char *data,
-	const char *cfile, unsigned int cline)
-{
-	enum json_errcode jcode = code;
+/******************************************************/
 
-	/* XXX: after conversion to enum so gcc catches missing ones */
-	if (!msg) switch (jcode) {
-		case JSON_RPC_PARSE_ERROR:     msg = "Parse error"; break;
-		case JSON_RPC_INVALID_REQUEST: msg = "Invalid Request"; break;
-		case JSON_RPC_NOT_FOUND:       msg = "Method not found"; break;
-		case JSON_RPC_INVALID_PARAMS:  msg = "Invalid params"; break;
-		case JSON_RPC_INTERNAL_ERROR:  msg = "Internal error"; break;
-		case JSON_RPC_ACCESS_DENIED:   msg = "Access denied"; break;
-		case JSON_RPC_OUT_PARSE_ERROR: msg = "Output parse error"; break;
-		case JSON_RPC_INVALID_INPUT:   msg = "Invalid input"; break;
-		case JSON_RPC_NO_OUTPUT:       msg = "No output"; break;
-		case JSON_RPC_HTTP_GET:
-		case JSON_RPC_HTTP_OPTIONS:    msg = "OK"; break;
-		case JSON_RPC_HTTP_NOT_FOUND:  msg = "Document not found"; break;
-	}
-
-	if (!data)
-		data = mmatic_printf(req->mm, "%s#%d", cfile, cline);
-
-	req->rep = ut_new_err(code, msg, data, req->mm);
-	return false;
-}
-
-/** Load given module and register in given db
+/** Load given module
  *
  * @param dir       directory containing module file
  * @param filename  name of module file (relative to dir)
@@ -216,6 +196,13 @@ static struct mod *load_module(const char *dir, const char *filename)
 	if (mod->api->magic != RPCD_MAGIC) {
 		dbg(0, "loading '%s' failed: invalid API magic\n", mod->path);
 		goto skip;
+	} else if (!
+		(mod->api->init &&
+		 mod->api->deinit &&
+		 mod->api->check &&
+		 mod->api->handle)) {
+		dbg(0, "loading '%s' failed: missing API elements!\n", mod->path);
+		goto skip;
 	}
 
 	asnsert(mod->api);
@@ -257,38 +244,19 @@ static void scan_dir(const char *dir)
 	}
 }
 
-int main(int argc, char *argv[])
+/** Parse Flatconf
+ *
+ * # load modules
+ * # init auth system
+ * # export whole config as FC_* environmental variables
+ */
+static bool parse_flatconf(void)
 {
-	char *v, *k;
-	struct req *req;
-	struct mod *mod, *global;
-	json *js;
-
-	/* init some vars */
-	mm = mmatic_create();
-	mmtmp = mmatic_create();
-	R.modules  = MMTHASH_CREATE_STR(free_mod);
-	R.globals  = MMTHASH_CREATE_STR(free_mod);
-	R.env      = MMTHASH_CREATE_STR(NULL); /* TODO: free f-n? */
-
-	/* setup signal handling */
-	signal(SIGPIPE, SIG_IGN);
-	signal(SIGUSR1, show_memory);
-	signal(SIGTERM, finish);
-	signal(SIGINT,  finish);
-
-	/* parse arguments */
-	switch (parse_argv(argc, argv)) { case 0: exit(1); case 2: exit(0); }
-
 	/* read Flatconf */
 	R.fc = asn_fcdir(R.fcdir, mm);
 	thash_dump(5, R.fc);
 
-	/* export Flatconf as bot environment */
-	THASH_ITER_LOOP(R.fc, k, v)
-		thash_set(R.env, mmprintf("FC_%s", asn_replace("/[^a-zA-Z0-9_]/", "_", k, mm)), v);
-
-	/* scan through fc:/dir */
+	/* scan through fc:/dir and load modules */
 	{
 		tlist *dirs = asn_fcparselist(CFG("dir/list.order"), mm);
 		struct fcel *dir;
@@ -299,23 +267,111 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	/* initialize global modules */
-	THASH_ITER_LOOP(R.globals, k, mod) {
-		if (mod->api->init)
-			mod->api->init(mod);
+	/* select authentication backend */
+	if (R.noauth == false) {
+		const char *a = CFG("auth");
+
+		if (streq(a, "internal"))
+			auth = authinternal;
+		else if (streq(a, "system"))
+			auth = authsystem;
+
+		/* announce */
+		if (auth)
+			R.auth = true;
 	}
+
+	/* export Flatconf as initial bot environment */
+	{
+		char *k, *v;
+		THASH_ITER_LOOP(R.fc, k, v) {
+			/* Remarks:
+			 * 1. we filter Flatconf names so they could be accepted by shell
+			 * 2. pbt() is passed as key, because hash is in strings mode and it'll be copied, not referenced */
+			thash_set(R.env,
+				pbt("FC_%s", asn_replace("/[^a-zA-Z0-9_]/", "_", k, mm)),
+				v);
+		}
+	}
+
+	return true;
+}
+
+/******************************************************/
+
+/** Generate an error JSON-RPC response based on error code */
+bool error(struct req *req, int code, const char *msg, const char *data,
+	const char *cfile, unsigned int cline)
+{
+	enum json_errcode jcode = code;
+
+	/* XXX: after conversion to enum so gcc catches missing ones */
+	if (!msg) switch (jcode) {
+		case JSON_RPC_PARSE_ERROR:     msg = "Parse error"; break;
+		case JSON_RPC_INVALID_REQUEST: msg = "Invalid Request"; break;
+		case JSON_RPC_NOT_FOUND:       msg = "Method not found"; break;
+		case JSON_RPC_INVALID_PARAMS:  msg = "Invalid params"; break;
+		case JSON_RPC_INTERNAL_ERROR:  msg = "Internal error"; break;
+		case JSON_RPC_ACCESS_DENIED:   msg = "Access denied"; break;
+		case JSON_RPC_OUT_PARSE_ERROR: msg = "Output parse error"; break;
+		case JSON_RPC_INVALID_INPUT:   msg = "Invalid input"; break;
+		case JSON_RPC_NO_OUTPUT:       msg = "No output"; break;
+		case JSON_RPC_HTTP_GET:
+		case JSON_RPC_HTTP_OPTIONS:    msg = "OK"; break;
+		case JSON_RPC_HTTP_NOT_FOUND:  msg = "Document not found"; break;
+	}
+
+	if (!data)
+		data = mmatic_printf(req->mm, "%s#%d", cfile, cline);
+
+	req->rep = ut_new_err(code, msg, data, req->mm);
+	return false;
+}
+
+int main(int argc, char *argv[])
+{
+	char *k;
+	struct req *req;
+	struct mod *mod, *global;
+	json *js;
+
+	/* init some vars */
+	mm = mmatic_create();
+	mmtmp = mmatic_create();
+	R.modules  = MMTHASH_CREATE_STR(free_mod);
+	R.globals  = MMTHASH_CREATE_STR(free_mod);
+	R.env      = MMTHASH_CREATE_STR(NULL); /* free fn not needed */
+
+	/* setup signal handling */
+	signal(SIGPIPE, SIG_IGN);
+	signal(SIGUSR1, show_memory);
+	signal(SIGTERM, finish);
+	signal(SIGINT,  finish);
+
+	/**********************/
+
+	/* parse arguments */
+	switch (parse_argv(argc, argv)) { case 0: exit(1); case 2: exit(0); }
+
+	/* parse Flatconf */
+	if (!parse_flatconf())
+		exit(1);
+
+	/**********************/
+
+	/* initialize global modules */
+	THASH_ITER_LOOP(R.globals, k, mod)
+		mod->api->init(mod);
 
 	/* initialize modules */
-	THASH_ITER_LOOP(R.modules, k, mod) {
-		if (mod->api->init)
-			mod->api->init(mod);
-	}
-
-	/* TODO: init R.rrules */
+	THASH_ITER_LOOP(R.modules, k, mod)
+		mod->api->init(mod);
 
 	/* TODO: unhash when its needed */
 //	if (R.daemonize)
 //		asn_daemonize(CFG("name"), R.pidfile);
+
+	int read_status;
 
 	do {
 		/* flush temp mem */
@@ -331,11 +387,27 @@ int main(int argc, char *argv[])
 		js = json_create(req->mm);
 
 		/* read the request */
-		if (!readreq(req))
+		read_status = readreq(req);
+		if (read_status == 0) /* invalid */
 			goto reply;
 
-		if (req->query)
+		/* dump it for debugging purposes */
+		if (read_status == 1 && req->query) /* all OK */
 			dbg(5, "%s\n", ut_char(req->query));
+
+		/* authenticate */
+		if (R.auth && auth) {
+			req->user = auth(req);
+
+			if (!req->user) {
+				errcode(JSON_RPC_ACCESS_DENIED);
+				goto reply;
+			}
+		}
+
+		/* mostly for HTTP file server */
+		if (read_status == 2)
+			goto reply;
 
 		/* find handler */
 		if (!req->method ||
@@ -344,31 +416,19 @@ int main(int argc, char *argv[])
 			goto reply;
 		}
 
-		/* TODO: check regexps */
-
 		/* find global module */
 		global = thash_get(R.globals, req->mod->dir);
 
-		/* run global check() */
-		if (global && global->api->check && !global->api->check(req, req->mm)) {
-			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
-			goto reply;
-		}
-
 		/* check arguments */
-		if (req->mod->api->check && !req->mod->api->check(req, req->mm)) {
+		if ((global && !global->api->check(req, req->mm)) ||
+		    (!req->mod->api->check(req, req->mm))) {
 			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
 
 		/* handle */
-		if (req->mod->api->handle && !req->mod->api->handle(req, req->mm)) {
-			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
-			goto reply;
-		}
-
-		/* run global handle() */
-		if (global && global->api->handle && !global->api->handle(req, req->mm)) {
+		if ((!req->mod->api->handle(req, req->mm)) ||
+		    (global && !global->api->handle(req, req->mm))) {
 			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}

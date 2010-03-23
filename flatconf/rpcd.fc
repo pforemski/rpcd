@@ -1,6 +1,12 @@
 order = {
+	{ type: "label", en: "Application" }
 	"name"
-	"htdocs"
 	"dir"
-	"limit"
+
+	{ type: "label", en: "Auth control" }
+	"auth"
+	"users"
+
+	{ type: "label", en: "HTTP mode" }
+	"htdocs"
 }

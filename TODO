@@ -1,16 +1,5 @@
+ * write some apps, polish the API
  * documentation
-
- * add identity info to request, pass to modules
-   * HTTP Auth headers
- * add authentication layer (fetch group if available)
-   * always-auth (for HTTP servers - CGI, SCGI, etc)
-   * Flatconf
- * simple authorization scheme: require auth-user
-
- * flatconf/:
-   * move I/O format selection to flatconf - needed for AAA config which is dependent on this
-   * authentication config
-   * authorization config
 
 --------------------------------
 
@@ -18,9 +7,8 @@
  * AAA
    * pass SCGI auth info
    * system auth (shadow)
- * flatconf/
-   * dir.fc: let for parameter passing to modules
- * superglobal modules for rpcd extensions (custom AAA)
+ * write module parameter passing code (to env)
+ * superglobal modules for rpcd extensions (like custom AAA)
  * a facility like DBUS to communicate with other instances (processes) of rpcd (possibly serving the same app)
    * we need a facility like mutex to synchronize concurrent access eg. to Flatconfs /etc/fc
    * see sem_overview(7) (remember about ipcs -l)

@@ -12,5 +12,6 @@
 #include "read.h"
 #include "write.h"
 #include "sh.h"
+#include "auth.h"
 
 #endif

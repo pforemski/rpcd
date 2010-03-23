@@ -1,0 +1,4 @@
+type = "list"
+title = { en: "Users" }
+
+deps = { @c:"auth", "internal", "==" }

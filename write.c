@@ -65,8 +65,16 @@ void writehttp(struct req *req)
 			break;
 
 		case JSON_RPC_ACCESS_DENIED:
-			code = 403;
-			msg = "Forbidden";
+			if (R.auth)
+				header = mmatic_printf(req->mm, "WWW-Authenticate: Basic realm=\"%s\"\n", CFG("name"));
+
+			if (R.auth && !req->claim_user) {
+				code = 401;
+				msg = "Authorization Required";
+			} else {
+				code = 403;
+				msg = "Forbidden";
+			}
 			break;
 
 		case JSON_RPC_HTTP_NOT_FOUND:

@@ -8,7 +8,13 @@
 
 bool sh_init(struct mod *mod)
 {
-	dbg(1, "%s: initialized\n", mod->name);
+	dbg(1, "%s: initialized\n", mod->path);
+	return true;
+}
+
+bool sh_deinit(struct mod *mod)
+{
+	dbg(1, "%s: deinitialized\n", mod->path);
 	return true;
 }
 
@@ -62,7 +68,7 @@ bool sh_handle(struct req *req, mmatic *mm)
 struct api sh_api = {
 	.magic  = RPCD_MAGIC,
 	.init   = sh_init,
-	.deinit = NULL,
+	.deinit = sh_deinit,
 	.check  = sh_check,
 	.handle = sh_handle,
 };
