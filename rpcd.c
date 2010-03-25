@@ -44,6 +44,17 @@ static void free_mod(void *ptr)
 
 /****************************************************/
 
+static bool generic_init(struct mod *mod)
+{
+	dbg(1, "module %s initialized\n", mod->name);
+	return true;
+}
+static bool generic_deinit(struct mod *mod) { return true; }
+static bool generic_check(struct req *req, mmatic *mm) { return true; }
+static bool generic_handle(struct req *req, mmatic *mm) { return true; }
+
+/****************************************************/
+
 /** SIGUSR1 handler which shows mm dump */
 static void show_memory() { if (mm) mmatic_summary(mm, 0); }
 
@@ -196,14 +207,16 @@ static struct mod *load_module(const char *dir, const char *filename)
 	if (mod->api->magic != RPCD_MAGIC) {
 		dbg(0, "loading '%s' failed: invalid API magic\n", mod->path);
 		goto skip;
-	} else if (!
-		(mod->api->init &&
-		 mod->api->deinit &&
-		 mod->api->check &&
-		 mod->api->handle)) {
-		dbg(0, "loading '%s' failed: missing API elements!\n", mod->path);
-		goto skip;
 	}
+
+	if (mod->api->init)
+		mod->api->init = generic_init;
+	if (mod->api->deinit)
+		mod->api->deinit = generic_deinit;
+	if (mod->api->check)
+		mod->api->check = generic_check;
+	if (mod->api->handle)
+		mod->api->handle = generic_handle;
 
 	asnsert(mod->api);
 	dbg(1, "loaded %s from %s\n", mod->name, mod->dir);
@@ -324,7 +337,7 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	if (!data)
 		data = mmatic_printf(req->mm, "%s#%d", cfile, cline);
 
-	req->rep = ut_new_err(code, msg, data, req->mm);
+	req->reply = ut_new_err(code, msg, data, req->mm);
 	return false;
 }
 
@@ -422,19 +435,22 @@ int main(int argc, char *argv[])
 		/* check arguments */
 		if ((global && !global->api->check(req, req->mm)) ||
 		    (!req->mod->api->check(req, req->mm))) {
-			if (!req->rep) errcode(JSON_RPC_INVALID_INPUT);
+			if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
+
+		/* simpler handle() implementation */
+		req->reply = ut_new_thash(NULL, req->mm);
 
 		/* handle */
 		if ((!req->mod->api->handle(req, req->mm)) ||
 		    (global && !global->api->handle(req, req->mm))) {
-			if (!req->rep) errcode(JSON_RPC_INTERNAL_ERROR);
+			if (!req->reply) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}
 
 reply:
-		if (!req->rep) errcode(JSON_RPC_NO_OUTPUT);
+		if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
 
 		writerep(req);
 	} while (true);

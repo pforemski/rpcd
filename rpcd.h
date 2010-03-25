@@ -40,6 +40,20 @@ struct rpcd {
 
 #define CFG(name) (asn_fcget(R.fc, (name)))
 
+/** A simple "firewall" rule */
+struct fw {
+	const char *param;       /** parameter name */
+
+	enum fwtype {            /** paramter type */
+		CHECK_BOOL,   CHECK_BOOL_STRICT,
+		CHECK_INT,    CHECK_INT_STRICT,
+		CHECK_DOUBLE, CHECK_DOUBLE_STRICT,
+		CHECK_STRING, CHECK_STRING_STRICT,
+	} type;
+
+	const char *regexp;      /** regexp to run against ut_char() */
+};
+
 /** A JSON-RPC request representation */
 struct req {
 	const char *uripath;     /** full path to optional HTTP URI */
@@ -47,7 +61,7 @@ struct req {
 	const char *method;      /** called procedure */
 
 	ut *query;               /** the "params" argument */
-	ut *rep;                 /** reply, may be NULL */
+	ut *reply;               /** reply, may be NULL */
 
 	struct mod *mod;         /** handler module */
 	mmatic *mm;              /** mmatic that will be flushed after handling */
@@ -67,6 +81,7 @@ struct mod {
 	enum modtype { C, JS, SH } type;   /** implemented in? */
 
 	struct api *api;                   /** implementation API */
+	thash *fw;                         /** firewall: thash of pointers to struct fw * */
 };
 
 /** Module API */
@@ -84,7 +99,7 @@ struct api {
 	 * @param  req    user request
 	 * @param  mm     req->mm
 	 * @retval true   continue to handler
-	 * @retval false  stop request, show error in rep or access violation error */
+	 * @retval false  stop request, show error in reply or access violation error */
 	bool (*check)(struct req *req, mmatic *mm);
 
 	/** RPC handler
@@ -115,7 +130,7 @@ extern mmatic *mm;
 extern mmatic *mmtmp;
 #define pbt(...) (mmatic_printf(mmtmp, __VA_ARGS__))
 
-/** Sets error in req->rep
+/** Sets error in req->reply
  * @return false */
 bool error(struct req *req, int code, const char *msg, const char *data,
 	const char *cfile, unsigned int cline);

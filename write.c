@@ -11,11 +11,11 @@ static char *common(struct req *req)
 	json *js = json_create(req->mm);
 	ut *rep = ut_new_thash(NULL, req->mm);
 
-	uth_add_char(rep, "jsonrpc", "2.0");
+	uth_set_char(rep, "jsonrpc", "2.0");
 	if (req->id)
-		uth_add_char(rep, "id", req->id);
+		uth_set_char(rep, "id", req->id);
 
-	uth_add_ut(rep, ut_ok(req->rep) ? "result" : "error", req->rep);
+	uth_set(rep, ut_ok(req->reply) ? "result" : "error", req->reply);
 
 	return json_print(js, rep);
 }
@@ -33,12 +33,12 @@ void write822(struct req *req)
 	char *k;
 	ut *v;
 
-	if (ut_type(req->rep) == T_HASH) {
-		THASH_ITER_LOOP(ut_thash(req->rep), k, v)
+	if (ut_type(req->reply) == T_HASH) {
+		THASH_ITER_LOOP(ut_thash(req->reply), k, v)
 			printf("%s: %s\n", k, ut_char(v));
 		write(1, "\n", 1);
 	} else {
-		printf("result: %s\n\n", ut_char(req->rep));
+		printf("result: %s\n\n", ut_char(req->reply));
 	}
 }
 
@@ -50,7 +50,7 @@ void writehttp(struct req *req)
 	char *header = "";
 	char *txt;
 
-	if (!ut_ok(req->rep)) switch (ut_errcode(req->rep)) {
+	if (!ut_ok(req->reply)) switch (ut_errcode(req->reply)) {
 		case JSON_RPC_PARSE_ERROR:
 		case JSON_RPC_INVALID_INPUT:
 		case JSON_RPC_INVALID_REQUEST:

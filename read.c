@@ -12,7 +12,7 @@ static int common(struct req *req)
 	ut *ut;
 
 	if (!ut_ok(req->query)) {
-		req->rep = req->query;
+		req->reply = req->query;
 		req->query = NULL;
 		return false;
 	}

@@ -10,3 +10,4 @@ rpcd: $(OBJECTS)
 	$(CC) $(LDFLAGS) $(OBJECTS) -o rpcd
 
 install: install-std
+install-links: install-lns

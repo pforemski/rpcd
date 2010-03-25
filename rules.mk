@@ -65,14 +65,14 @@ install-std: all
 
 install-lns: all
 	mkdir -m 755 -p $(PKGDST)/{include,lib}/$(ME)
-	ln -s $(PWD)/*.h $(PKGDST)/include/$(ME)/
+	ln -sf $(PWD)/*.h $(PKGDST)/include/$(ME)/
 	for i in $(TARGETS); do \
-		[ "$${i##*.}" = "so" ] && ln -s $(PWD)/$$i $(PKGDST)/lib/; \
-		[ "$${i##*.}" = "a" ]  && ln -s $(PWD)/$$i $(PKGDST)/lib/; \
+		[ "$${i##*.}" = "so" ] && ln -sf $(PWD)/$$i $(PKGDST)/lib/; \
+		[ "$${i##*.}" = "a" ]  && ln -sf $(PWD)/$$i $(PKGDST)/lib/; \
 	done || true
 	mkdir -m 755 -p $(PKGDST)/bin
 	for i in $(TARGETS); do \
-		[ "$${i##*.}" = "$$i" ] && ln -s $(PWD)/$$i $(PKGDST)/bin/;\
+		[ "$${i##*.}" = "$$i" ] && ln -sf $(PWD)/$$i $(PKGDST)/bin/;\
 	done || true
 
 .PHONY: version.h doc

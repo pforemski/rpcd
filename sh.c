@@ -58,9 +58,8 @@ bool sh_handle(struct req *req, mmatic *mm)
 
 	if (rc != 0) {
 		return err(rc, out, err);
-	}
-	else {
-		req->rep = ut_new_thash(rfc822_parse(out, req->mm), req->mm);
+	} else {
+		req->reply = ut_new_thash(rfc822_parse(out, req->mm), req->mm);
 		return true;
 	}
 }
