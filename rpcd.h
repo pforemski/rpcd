@@ -46,8 +46,8 @@ struct fw {
 	enum ut_type type;       /** parameter type
 	                           * @note its important, because properly done conversion will ensure
 	                           *       economic memory usage */
-	const char *regexp;      /** regexp to run against ut_char(param) */
 	bool required;           /** if true, fail if parameter not found */
+	const char *regexp;      /** regexp to run against ut_char(param) */
 };
 
 /** A JSON-RPC request representation */

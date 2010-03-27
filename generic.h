@@ -15,6 +15,6 @@ bool generic_deinit(struct mod *mod);
 bool generic_check(struct req *req, mmatic *mm);
 bool generic_handle(struct req *req, mmatic *mm);
 
-bool generic_fw(struct req *req);
+bool generic_fw(struct req *req, struct fw *fw);
 
 #endif /* _GENERIC_H_ */

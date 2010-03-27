@@ -30,18 +30,20 @@ bool generic_handle(struct req *req, mmatic *mm)
 	return true;
 }
 
-bool generic_fw(struct req *req)
+/** Run parameter validation against simple "firewall"
+ *
+ * @note we dont get req->mod->fw automatically because we want to be more flexible
+ */
+bool generic_fw(struct req *req, struct fw *fw)
 {
-	if (!req->mod->fw)
+	if (!fw)
 		return true;
 
 	if (!ut_is_thash(req->query))
 		return err(JSON_RPC_INVALID_PARAMS, "Expected parameters in a hash object", NULL);
 
-	struct fw *fw;
 	ut *param;
-
-	for (fw = req->mod->fw; fw->name; fw++) {
+	for (; fw->name; fw++) {
 		dbg(5, "%s: checking\n", fw->name);
 
 		param = uth_get(req->query, fw->name);

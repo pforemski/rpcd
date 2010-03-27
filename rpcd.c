@@ -183,7 +183,7 @@ static struct mod *load_module(const char *dir, const char *filename)
 			goto skip;
 		}
 
-		mod->api = dlsym(so, pbt("%s_mod", mod->name));
+		mod->api = dlsym(so, pbt("%s_api", mod->name));
 		if (!mod->api) {
 			dbg(0, "%s failed: %s\n", mod->name, dlerror());
 			goto skip;
@@ -422,14 +422,15 @@ int main(int argc, char *argv[])
 			goto reply;
 		}
 
-		/* run firewall checks */
-		if (!generic_fw(req)) {
+		/* find global module */
+		global = thash_get(R.globals, req->mod->dir);
+
+		/* check firewall */
+		if ((global && global->fw && !generic_fw(req, global->fw)) ||
+		    (req->mod->fw && !generic_fw(req, req->mod->fw))) {
 			if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
-
-		/* find global module */
-		global = thash_get(R.globals, req->mod->dir);
 
 		/* check arguments */
 		if ((global && !global->api->check(req, req->mm)) ||
