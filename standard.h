@@ -1,5 +1,5 @@
 /*
- * Based on http://groups.google.com/group/json-rpc/web/json-rpc-1-2-proposal
+ * Based on http://groups.google.com/group/json-rpc/web/json-rpc-2-0
  *
  * Copyright (C) 2009-2010 ASN Sp. z o.o.
  * Author: Pawel Foremski <pjf@asn.pl>

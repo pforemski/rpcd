@@ -44,17 +44,6 @@ static void free_mod(void *ptr)
 
 /****************************************************/
 
-static bool generic_init(struct mod *mod)
-{
-	dbg(1, "module %s initialized\n", mod->name);
-	return true;
-}
-static bool generic_deinit(struct mod *mod) { return true; }
-static bool generic_check(struct req *req, mmatic *mm) { return true; }
-static bool generic_handle(struct req *req, mmatic *mm) { return true; }
-
-/****************************************************/
-
 /** SIGUSR1 handler which shows mm dump */
 static void show_memory() { if (mm) mmatic_summary(mm, 0); }
 
@@ -75,7 +64,7 @@ static void help(void)
 	printf("  --rfc822         read/write in RFC822\n");
 	printf("  --noauth         disable auth\n");
 	printf("\n");
-	printf("  --foreground,-f  dont daemonize, dont syslog\n");
+	printf("  --daemonize,-d   daemonize, log to syslog\n");
 	printf("  --pidfile=<path> where to write daemon PID to [%s]\n", RPCD_DEFAULT_PIDFILE);
 	printf("  --verbose        be verbose (alias for --debug=5)\n");
 	printf("  --debug=<num>    set debugging level\n");
@@ -112,7 +101,7 @@ static int parse_argv(int argc, char *argv[])
 		{ "debug",      1, NULL,  2  },
 		{ "help",       0, NULL,  3  },
 		{ "version",    0, NULL,  4  },
-		{ "foreground", 0, NULL,  5  },
+		{ "daemonize",  0, NULL,  5  },
 		{ "pidfile",    1, NULL,  6  },
 		{ "rfc822",     0, NULL,  7  },
 		{ "http",       0, NULL,  8  },
@@ -122,7 +111,7 @@ static int parse_argv(int argc, char *argv[])
 	};
 
 	/* set defaults */
-	R.daemonize = 1;
+	R.daemonize = false;
 	R.pidfile = RPCD_DEFAULT_PIDFILE;
 	R.noauth = false;
 	readreq = readjson;
@@ -140,7 +129,7 @@ static int parse_argv(int argc, char *argv[])
 			case 'v':
 			case  4 : version(); return 2;
 			case 'f':
-			case  5 : R.daemonize = 0; break;
+			case  5 : R.daemonize = 1; break;
 			case  6 : R.pidfile = optarg; break;
 			case  7 : readreq = read822;  writerep = write822; break;
 			case  8 : readreq = readhttp; writerep = writehttp; break;
@@ -194,32 +183,37 @@ static struct mod *load_module(const char *dir, const char *filename)
 			goto skip;
 		}
 
-		mod->api = dlsym(so, pbt("%s_module", mod->name));
+		mod->api = dlsym(so, pbt("%s_mod", mod->name));
 		if (!mod->api) {
 			dbg(0, "%s failed: %s\n", mod->name, dlerror());
 			goto skip;
 		}
+
+		mod->fw = dlsym(so, pbt("%s_fw", mod->name));
 	} else if (streq(ext, ".js")) {
-		dbg(1, "%s: JS not supported yet\n");
+		dbg(1, "%s: JS not supported yet\n", mod->path);
 		goto skip;
 	} else goto skip;
 
 	if (mod->api->magic != RPCD_MAGIC) {
-		dbg(0, "loading '%s' failed: invalid API magic\n", mod->path);
+		dbg(0, "%s failed: invalid API magic\n", mod->path);
 		goto skip;
 	}
 
-	if (mod->api->init)
+	if (!mod->api->init)
 		mod->api->init = generic_init;
-	if (mod->api->deinit)
+
+	if (!mod->api->deinit)
 		mod->api->deinit = generic_deinit;
-	if (mod->api->check)
+
+	if (!mod->api->check)
 		mod->api->check = generic_check;
-	if (mod->api->handle)
+
+	if (!mod->api->handle)
 		mod->api->handle = generic_handle;
 
 	asnsert(mod->api);
-	dbg(1, "loaded %s from %s\n", mod->name, mod->dir);
+	dbg(1, "loaded %s\n", mod->path);
 
 	return mod;
 
@@ -380,9 +374,8 @@ int main(int argc, char *argv[])
 	THASH_ITER_LOOP(R.modules, k, mod)
 		mod->api->init(mod);
 
-	/* TODO: unhash when its needed */
-//	if (R.daemonize)
-//		asn_daemonize(CFG("name"), R.pidfile);
+	if (R.daemonize)
+		asn_daemonize(CFG("name"), R.pidfile);
 
 	int read_status;
 
@@ -426,6 +419,12 @@ int main(int argc, char *argv[])
 		if (!req->method ||
 		    !(req->mod = thash_get(R.modules, req->method))) {
 			errcode(JSON_RPC_NOT_FOUND);
+			goto reply;
+		}
+
+		/* run firewall checks */
+		if (!generic_fw(req)) {
+			if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
 

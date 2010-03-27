@@ -6,30 +6,33 @@
 
 #include "common.h"
 
-static int common(struct req *req)
+static int common(struct req *req, bool leave)
 {
-	thash *args;
 	ut *ut;
 
 	if (!ut_ok(req->query)) {
 		req->reply = req->query;
 		req->query = NULL;
 		return false;
+	} else if (ut_type(req->query) != T_HASH) {
+		return errcode(JSON_RPC_INVALID_REQUEST);
 	}
 
 	/* JSON-RPC argument check */
-	args = ut_thash(req->query);
-
-	if ((ut = thash_get(args, "method")))
+	if ((ut = uth_get(req->query, "method")))
 		req->method = ut_char(ut);
 
-	if ((ut = thash_get(args, "id")))
+	if ((ut = uth_get(req->query, "id")))
 		req->id = ut_char(ut);
 
 	/* XXX: dont check jsonrpc=2.0 */
 
-	if ((ut = thash_get(args, "params")))
-		req->query = ut;
+	if (!leave) {
+		if ((ut = uth_get(req->query, "params")))
+			req->query = ut;
+		else
+			req->query = uth_set_thash(req->query, "params", NULL); /* create empty hash */
+	}
 
 	return true;
 }
@@ -51,7 +54,7 @@ int readjson(struct req *req)
 	js = json_create(req->mm);
 	req->query = json_parse(js, xstr_string(xs));
 
-	return common(req);
+	return common(req, false);
 }
 
 int read822(struct req *req)
@@ -73,7 +76,7 @@ int read822(struct req *req)
 		rfc822_parse(xstr_string(input), req->mm),
 		req->mm);
 
-	return common(req);
+	return common(req, true);
 }
 
 int readhttp(struct req *req)
@@ -183,5 +186,5 @@ int readhttp(struct req *req)
 	js = json_create(req->mm);
 	req->query = json_parse(js, buf);
 
-	return common(req);
+	return common(req, false);
 }

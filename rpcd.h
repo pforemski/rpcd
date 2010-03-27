@@ -40,18 +40,14 @@ struct rpcd {
 
 #define CFG(name) (asn_fcget(R.fc, (name)))
 
-/** A simple "firewall" rule */
+/** A simple "parameter firewall" rule */
 struct fw {
-	const char *param;       /** parameter name */
-
-	enum fwtype {            /** paramter type */
-		CHECK_BOOL,   CHECK_BOOL_STRICT,
-		CHECK_INT,    CHECK_INT_STRICT,
-		CHECK_DOUBLE, CHECK_DOUBLE_STRICT,
-		CHECK_STRING, CHECK_STRING_STRICT,
-	} type;
-
-	const char *regexp;      /** regexp to run against ut_char() */
+	const char *name;        /** parameter name */
+	enum ut_type type;       /** parameter type
+	                           * @note its important, because properly done conversion will ensure
+	                           *       economic memory usage */
+	const char *regexp;      /** regexp to run against ut_char(param) */
+	bool required;           /** if true, fail if parameter not found */
 };
 
 /** A JSON-RPC request representation */
@@ -66,6 +62,7 @@ struct req {
 	struct mod *mod;         /** handler module */
 	mmatic *mm;              /** mmatic that will be flushed after handling */
 	thash *env;              /** request environment, initially cloned from R.env */
+	void *prv;               /** for use by module */
 
 	const char *claim_user;  /** requester claims to be this user */
 	const char *claim_pass;  /** and gives us this password to verify him */
@@ -81,7 +78,7 @@ struct mod {
 	enum modtype { C, JS, SH } type;   /** implemented in? */
 
 	struct api *api;                   /** implementation API */
-	thash *fw;                         /** firewall: thash of pointers to struct fw * */
+	struct fw *fw;                     /** array of firewall rules, ended by NULL */
 };
 
 /** Module API */
