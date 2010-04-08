@@ -180,14 +180,12 @@ static struct mod *load_module(const char *dir, const char *filename)
 		void *so = dlopen(mod->path, RTLD_NOW | RTLD_GLOBAL);
 		if (!so) {
 			dbg(0, "%s failed: %s\n", mod->name, dlerror());
-			goto skip;
+			exit(1);
 		}
 
 		mod->api = dlsym(so, pbt("%s_api", mod->name));
-		if (!mod->api) {
-			dbg(0, "%s failed: %s\n", mod->name, dlerror());
-			goto skip;
-		}
+		if (!mod->api)
+			mod->api = &generic_api;
 
 		mod->fw = dlsym(so, pbt("%s_fw", mod->name));
 	} else if (streq(ext, ".js")) {
@@ -445,7 +443,7 @@ int main(int argc, char *argv[])
 		/* handle */
 		if ((!req->mod->api->handle(req, req->mm)) ||
 		    (global && !global->api->handle(req, req->mm))) {
-			if (!req->reply) errcode(JSON_RPC_INTERNAL_ERROR);
+			if (ut_ok(req->reply)) errcode(JSON_RPC_INTERNAL_ERROR);
 			goto reply;
 		}
 

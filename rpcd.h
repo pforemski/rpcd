@@ -43,10 +43,10 @@ struct rpcd {
 /** A simple "parameter firewall" rule */
 struct fw {
 	const char *name;        /** parameter name */
+	bool required;           /** if true, fail if parameter not found */
 	enum ut_type type;       /** parameter type
 	                           * @note its important, because properly done conversion will ensure
 	                           *       economic memory usage */
-	bool required;           /** if true, fail if parameter not found */
 	const char *regexp;      /** regexp to run against ut_char(param) */
 };
 

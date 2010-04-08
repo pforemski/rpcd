@@ -117,7 +117,7 @@ int readhttp(struct req *req)
 	/* fetch authentication information ASAP */
 	auth = thash_get(h, "Authorization");
 	if (auth && strncmp(auth, "Basic ", 6) == 0) {
-		xstr *ad = asn_b64dec(auth+6, req->mm);
+		xstr *ad = asn_b64_dec(auth+6, req->mm);
 		char *pass = strchr(xstr_string(ad), ':');
 
 		if (pass) {

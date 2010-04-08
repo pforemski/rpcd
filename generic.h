@@ -17,4 +17,6 @@ bool generic_handle(struct req *req, mmatic *mm);
 
 bool generic_fw(struct req *req, struct fw *fw);
 
-#endif /* _GENERIC_H_ */
+extern struct api generic_api;
+
+#endif
