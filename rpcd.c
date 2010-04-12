@@ -451,7 +451,7 @@ reply:
 		if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
 
 		writerep(req);
-	} while (true);
+	} while (req->last == false);
 
 	return 1;
 }

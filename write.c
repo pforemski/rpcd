@@ -113,9 +113,11 @@ printtxt:
 		"%s"
 		"Content-Type: %s\n"
 		"Content-Length: %d\n"
-		"Connection: Keep-Alive\n\n"
+		"Connection: %s\n\n"
 		"%s\n",
-		code, msg, header, type, strlen(txt) + 1, txt);
+		code, msg, header, type, strlen(txt) + 1,
+		(req->last ? "Close" : "Keep-alive"),
+		txt);
 
 	fflush(stdout);
 }
