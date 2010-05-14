@@ -185,7 +185,7 @@ static struct mod *load_module(const char *dir, const char *filename)
 
 		mod->api = dlsym(so, pbt("%s_api", mod->name));
 		if (!mod->api) {
-			dbg(0, "%s failed: %s\n", mod->name, dlerror());
+			dbg(1, "%s failed: %s\n", mod->name, dlerror());
 			goto skip;
 		}
 

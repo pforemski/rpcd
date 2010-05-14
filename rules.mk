@@ -64,7 +64,8 @@ install-std: all
 	for i in $(TARGETS); do test "$${i##*.}" = "$$i" && install -m 755 $$i $(PKGDST)/bin; done || true
 
 install-lns: all
-	mkdir -m 755 -p $(PKGDST)/{include,lib}/$(ME)
+	mkdir -m 755 -p $(PKGDST)/include/$(ME)
+	mkdir -m 755 -p $(PKGDST)/lib/$(ME)
 	ln -sf $(PWD)/*.h $(PKGDST)/include/$(ME)/
 	for i in $(TARGETS); do \
 		[ "$${i##*.}" = "so" ] && ln -sf $(PWD)/$$i $(PKGDST)/lib/; \
