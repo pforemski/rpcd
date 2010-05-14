@@ -29,8 +29,7 @@ bool sh_handle(struct req *req, mmatic *mm)
 	thash *env = NULL, *qh = NULL;
 	tlist *args = NULL, *qp = NULL;
 	ut *v;
-	char *k, out[BUFSIZ] = {0}, err[BUFSIZ] = {0};
-	int rc;
+	char *k;
 
 	switch (ut_type(req->query)) {
 		case T_LIST: // FIXME: security?
@@ -54,12 +53,16 @@ bool sh_handle(struct req *req, mmatic *mm)
 	}
 
 	/* run the handler */
-	rc = asn_cmd(req->mod->path, /* TODO:args */ NULL, env, NULL, 0, out, BUFSIZ, err, BUFSIZ);
+	int rc;
+	xstr *out = MMXSTR_CREATE("");
+	xstr *err = MMXSTR_CREATE("");
+
+	rc = asn_cmd(req->mod->path, /* TODO:args */ NULL, env, NULL, out, err);
 
 	if (rc != 0) {
-		return err(rc, out, err);
+		return err(rc, xstr_string(out), xstr_string(err));
 	} else {
-		req->reply = ut_new_thash(rfc822_parse(out, req->mm), req->mm);
+		req->reply = ut_new_thash(rfc822_parse(xstr_string(out), req->mm), req->mm);
 		return true;
 	}
 }

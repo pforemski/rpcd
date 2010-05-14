@@ -67,6 +67,8 @@ struct req {
 	const char *claim_user;  /** requester claims to be this user */
 	const char *claim_pass;  /** and gives us this password to verify him */
 	struct user *user;       /** if not null, points at authenticated user */
+
+	bool last;               /** if true, exit after handling this request */
 };
 
 /** Module representation */

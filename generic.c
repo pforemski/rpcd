@@ -87,6 +87,14 @@ bool generic_fw(struct req *req, struct fw *fw)
 	return true;
 }
 
+struct api generic_api = {
+	.magic  = RPCD_MAGIC,
+	.init   = generic_init,
+	.deinit = generic_deinit,
+	.check  = generic_check,
+	.handle = generic_handle,
+};
+
 /* for Vim autocompletion:
  * vim: path=.,/usr/include,/usr/local/include,~/local/include
  */

@@ -127,6 +127,10 @@ int readhttp(struct req *req)
 		}
 	}
 
+	const char *cc = thash_get(h, "Connection");
+	if (cc && (streq(cc, "close") || streq(cc, "Close")))
+		req->last = true;
+
 	if (ht == OPTIONS) {
 		return errcode(JSON_RPC_HTTP_OPTIONS);
 	}

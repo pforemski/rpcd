@@ -34,6 +34,8 @@ static void internaldb_init(void)
 
 		thash_set(internaldb, user->name, user);
 	}
+
+	dbg(3, "db initialized\n");
 }
 
 /** Authenticate user info in req->claim_* and return matching user on success
@@ -47,6 +49,8 @@ struct user *authinternal(struct req *req)
 
 	if (!req->claim_user || !req->claim_user[0] || !req->claim_pass)
 		return NULL;
+
+	dbg(3, "user '%s', pass '%s'\n", req->claim_user, req->claim_pass);
 
 	user = thash_get(internaldb, req->claim_user);
 	if (!user || !streq(req->claim_pass, user->pass))
