@@ -37,15 +37,33 @@ static int common(struct req *req, bool leave)
 	return true;
 }
 
-int readjson(struct req *req)
+static int readjson_len(struct req *req, int len)
 {
 	char buf[BUFSIZ];
 	xstr *xs = xstr_create("", req->mm);
 	json *js;
 
-	while (fgets(buf, sizeof(buf), stdin)) {
-		if (!buf[0] || buf[0] == '\n') break;
-		xstr_append(xs, buf);
+	if (len < 0) {
+		while (fgets(buf, sizeof(buf), stdin)) {
+			if (!buf[0] || buf[0] == '\n') break;
+			xstr_append(xs, buf);
+		}
+	} else {
+		int r;
+
+		while ((r = fread(buf, 1, MIN(len, sizeof(buf)), stdin))) {
+			if (r < 0) {
+				dbg(5, "fread() returned %d, len=%d\n", r, len);
+				break;
+			}
+
+			/* always appends \0 */
+			xstr_append_size(xs, buf, r);
+
+			len -= r;
+			if (len <= 0)
+				break;
+		}
 	}
 
 	/* eof? */
@@ -55,6 +73,11 @@ int readjson(struct req *req)
 	req->query = json_parse(js, xstr_string(xs));
 
 	return common(req, false);
+}
+
+int readjson(struct req *req)
+{
+	return readjson_len(req, -1);
 }
 
 int read822(struct req *req)
@@ -86,7 +109,6 @@ int readhttp(struct req *req)
 	int len;
 	xstr *xs = xstr_create("", req->mm);
 	thash *h;
-	json *js;
 
 	/* read query */
 	if (!fgets(first, sizeof(first), stdin) || first[0] == '\n')
@@ -178,17 +200,8 @@ int readhttp(struct req *req)
 	if (!cl) return errmsg("Content-Length needed");
 
 	len = atoi(cl);
-	if (len < 0 || len > BUFSIZ - 1)
+	if (len < 0)
 		return errmsg("Unsupported Content-Length");
 
-	if (fread(buf, 1, len, stdin) != len)
-		return errmsg("Invalid Content-Length");
-	else
-		buf[len+1] = '\0';
-
-	/* parse the query */
-	js = json_create(req->mm);
-	req->query = json_parse(js, buf);
-
-	return common(req, false);
+	return readjson_len(req, len);
 }
