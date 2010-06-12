@@ -57,7 +57,7 @@ bool sh_handle(struct req *req, mmatic *mm)
 	xstr *out = MMXSTR_CREATE("");
 	xstr *err = MMXSTR_CREATE("");
 
-	rc = asn_cmd(req->mod->path, /* TODO:args */ NULL, env, NULL, out, err);
+	rc = asn_cmd2(req->mod->path, /* TODO:args */ NULL, env, NULL, out, err);
 
 	if (rc != 0) {
 		return err(rc, xstr_string(out), xstr_string(err));
