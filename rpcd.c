@@ -2,7 +2,7 @@
  * rpcd - a JSON-RPC server
  *
  * Copyright (C) 2009-2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pjf@asn.pl>
+ * Author: Pawel Foremski <pforemski@asn.pl>
  *
  * All rights reserved
  */
