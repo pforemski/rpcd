@@ -18,11 +18,6 @@ bool sh_deinit(struct mod *mod)
 	return true;
 }
 
-bool sh_check(struct req *req, mmatic *mm)
-{
-	return true; // TODO?
-}
-
 // FIXME
 bool sh_handle(struct req *req, mmatic *mm)
 {
@@ -71,6 +66,5 @@ struct api sh_api = {
 	.magic  = RPCD_MAGIC,
 	.init   = sh_init,
 	.deinit = sh_deinit,
-	.check  = sh_check,
 	.handle = sh_handle,
 };

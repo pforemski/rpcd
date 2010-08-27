@@ -120,7 +120,7 @@ int readhttp(struct req *req)
 	} else if (strncmp(first, "OPTIONS ", 8) == 0) {
 		ht = OPTIONS;
 		uri = first + 8;
-	} else if (strncmp(first, "GET ", 4) == 0) {
+	} else if (strncmp(first, "GET ", 4) == 0 && R.htdocs) { /* @1 */
 		ht = GET;
 		uri = first + 4;
 	} else {
@@ -157,7 +157,7 @@ int readhttp(struct req *req)
 		return errcode(JSON_RPC_HTTP_OPTIONS);
 	}
 
-	/* read URI */
+	/* handle static query, note that htdocs!=NULL checked @1 */
 	if (ht == GET) {
 		char *space = strchr(uri, ' ');
 		if (space) *space = '\0';
@@ -170,7 +170,7 @@ int readhttp(struct req *req)
 			return 2;
 		}
 
-		req->uripath = mmatic_printf(req->mm, "%s%s", CFG("htdocs"), uri);
+		req->uripath = mmatic_printf(req->mm, "%s%s", R.htdocs, uri);
 		if (asn_isfile(req->uripath) > 0) {
 			dbg(4, "GET '%s'\n", req->uripath);
 			errcode(JSON_RPC_HTTP_GET);

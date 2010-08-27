@@ -20,20 +20,12 @@ bool generic_deinit(struct mod *mod)
 	return true;
 }
 
-bool generic_check(struct req *req, mmatic *mm)
-{
-	return true;
-}
-
 bool generic_handle(struct req *req, mmatic *mm)
 {
 	return true;
 }
 
-/** Run parameter validation against simple "firewall"
- *
- * @note we dont get req->mod->fw automatically because we want to be more flexible
- */
+/** Run parameter validation against simple "firewall" */
 bool generic_fw(struct req *req, struct fw *fw)
 {
 	if (!fw)
@@ -91,7 +83,6 @@ struct api generic_api = {
 	.magic  = RPCD_MAGIC,
 	.init   = generic_init,
 	.deinit = generic_deinit,
-	.check  = generic_check,
 	.handle = generic_handle,
 };
 

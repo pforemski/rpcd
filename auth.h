@@ -7,7 +7,6 @@
 #ifndef _AUTH_H_
 #define _AUTH_H_
 
-struct user *authinternal(struct req *req);
-struct user *authsystem(struct req *req);
+const char *auth(struct req *req);
 
 #endif

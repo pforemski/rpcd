@@ -65,10 +65,10 @@ void writehttp(struct req *req)
 			break;
 
 		case JSON_RPC_ACCESS_DENIED:
-			if (R.auth)
-				header = mmatic_printf(req->mm, "WWW-Authenticate: Basic realm=\"%s\"\n", CFG("name"));
+			if (R.htpasswd)
+				header = mmatic_printf(req->mm, "WWW-Authenticate: Basic realm=\"%s\"\n", R.name);
 
-			if (R.auth && !req->claim_user) {
+			if (R.htpasswd && !req->claim_user) {
 				code = 401;
 				msg = "Authorization Required";
 			} else {
@@ -115,7 +115,7 @@ printtxt:
 		"Content-Length: %d\n"
 		"Connection: %s\n\n"
 		"%s\n",
-		code, msg, header, type, strlen(txt) + 1,
+		code, msg, header, type, (int) strlen(txt) + 1,
 		(req->last ? "Close" : "Keep-alive"),
 		txt);
 

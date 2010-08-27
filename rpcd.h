@@ -12,10 +12,10 @@
 
 #include <libasn/lib.h>
 
-#define RPCD_VER "0.1"
+#define RPCD_VER "0.2"
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
 
-#define RPCD_GLOBAL_REGEX "/^global\\.[a-z]+$/"
+#define RPCD_COMMON_REGEX "/^common\\.[a-z]+$/"
 
 struct rpcd;
 struct req;
@@ -25,20 +25,16 @@ struct api;
 /** Global data root */
 struct rpcd {
 	const char *pidfile;     /** path to store PID in */
+	const char *name;        /** syslog name */
 	bool daemonize;          /** start in background? */
 
-	bool noauth;             /** if true, rpcd was started with --noauth */
-	bool auth;               /** all in all, is authentication enabled? */
-
-	const char *fcdir;       /** Flatconf datatree to read config from */
-	thash *fc;               /** Flatconf dump */
+	const char *htpasswd;    /** if not empty, authenticate HTTP queries */
+	const char *htdocs;      /** if not empty, serve static GET queries from this dir */
 
 	thash *modules;          /** char name -> struct mod */
-	thash *globals;          /** char directory -> struct mod: global modules */
-	thash *env;              /** char name -> char val: global environment skeleton */
+	thash *commons;          /** char directory -> struct mod: common modules */
+	thash *env;              /** char name -> char val: common environment skeleton */
 } R;
-
-#define CFG(name) (asn_fcget(R.fc, (name)))
 
 /** A simple "parameter firewall" rule */
 struct fw {
@@ -66,7 +62,7 @@ struct req {
 
 	const char *claim_user;  /** requester claims to be this user */
 	const char *claim_pass;  /** and gives us this password to verify him */
-	struct user *user;       /** if not null, points at authenticated user */
+	const char *user;        /** if not null, points at authenticated user */
 
 	bool last;               /** if true, exit after handling this request */
 };
@@ -85,8 +81,8 @@ struct mod {
 
 /** Module API */
 struct api {
-	int magic;                         /** for sanity checks */
-#define RPCD_MAGIC 0xDEADBEEF
+	uint32_t magic;                         /** for sanity checks */
+#define RPCD_MAGIC 0x13370002
 
 	/** Module initialization */
 	bool (*init)(struct mod *mod);
@@ -94,36 +90,23 @@ struct api {
 	/** Module deinitialization */
 	bool (*deinit)(struct mod *mod);
 
-	/** Per-module custom firewall
-	 * @param  req    user request
-	 * @param  mm     req->mm
-	 * @retval true   continue to handler
-	 * @retval false  stop request, show error in reply or access violation error */
-	bool (*check)(struct req *req, mmatic *mm);
-
 	/** RPC handler
 	 * @note          this variable may be null, meaning "just check the request"
 	 *
 	 * @param  req    user request
 	 * @param  mm     req->mm
 	 * @retval true   send reply to user, set reply to "true" if empty
-	 * @retval false  stop request, show error in rep or generic internal error */
+	 * @retval false  stop request, show error in rep or generic error */
 	bool (*handle)(struct req *req, mmatic *mm);
 
 	void *prv;                         /** implementation-dependent use */
-};
-
-/** rpcd user */
-struct user {
-	const char *name;                  /** user name */
-	const char *pass;                  /** password, if available */
-	tlist *groups;                     /** groups user belong to: tlist of char * */
 };
 
 /********************************************************************/
 
 /** Global mmatic flushed on program end */
 extern mmatic *mm;
+#define pb(...) (mmatic_printf(mm, __VA_ARGS__))
 
 /** Temporary mmatic flushed after each query */
 extern mmatic *mmtmp;

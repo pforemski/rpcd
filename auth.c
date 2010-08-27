@@ -7,64 +7,46 @@
 #include "common.h"
 
 /** Cache of internal users: username -> struct user * */
-static thash *internaldb = NULL;
+static thash *authdb = NULL;
 
-static void internaldb_init(void)
+static void authdb_init(void)
 {
-	struct user *user;
-	tlist *groups; struct fcel *groupel;
-	tlist *users; struct fcel *userel;
+	char *str;
 
-	internaldb = MMTHASH_CREATE_STR(NULL);
+	str = asn_readfile(R.htpasswd, mmtmp);
+	if (str) {
+		authdb = rfc822_parse(str, mm);
 
-	users = asn_fcparselist(CFG("users/list.order"), mmtmp);
-	TLIST_ITER_LOOP (users, userel) {
-		if (userel->enabled == false)
-			continue;
-
-		user = mmzalloc(sizeof(*user));
-		user->name = mmstrdup(userel->elname);
-		user->pass = CFG((const char *) pbt("users/%d/password", userel->elid));
-		user->groups = MMTLIST_CREATE(NULL);
-
-		groups = asn_fcparselist(CFG(pbt("users/%d/groups/list.order", userel->elid)), mmtmp);
-		TLIST_ITER_LOOP (groups, groupel) {
-			tlist_push(user->groups, mmstrdup(groupel->elname));
+		if (authdb) {
+			dbg(3, "db initialized\n");
+			thash_dump(5, authdb);
+			return;
 		}
-
-		thash_set(internaldb, user->name, user);
 	}
 
-	dbg(3, "db initialized\n");
+	authdb = MMTHASH_CREATE_STR(NULL);
 }
 
 /** Authenticate user info in req->claim_* and return matching user on success
  * @retval NULL   authentication failed */
-struct user *authinternal(struct req *req)
+const char *auth(struct req *req)
 {
-	struct user *user;
+	const char *pass;
 
-	if (!internaldb)
-		internaldb_init();
+	if (!R.htpasswd)
+		return NULL;
+
+	if (!authdb)
+		authdb_init();
 
 	if (!req->claim_user || !req->claim_user[0] || !req->claim_pass)
 		return NULL;
 
-	dbg(3, "user '%s', pass '%s'\n", req->claim_user, req->claim_pass);
-
-	user = thash_get(internaldb, req->claim_user);
-	if (!user || !streq(req->claim_pass, user->pass))
+	pass = thash_get(authdb, req->claim_user);
+	if (!pass || !streq(req->claim_pass, pass))
 		return NULL;
 
-	dbg(5, "user %s authenticated\n", user->name);
+	dbg(3, "user %s authenticated\n", req->claim_user);
 
-	return user;
-}
-
-/*************************************************************/
-
-struct user *authsystem(struct req *req)
-{
-	dbg (0, "TODO :)\n");
-	return NULL;
+	return req->claim_user;
 }

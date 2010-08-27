@@ -28,8 +28,8 @@ int (*readreq)(struct req *req);
 /** Pointer at function writing reply */
 void (*writerep)(struct req *req);
 
-/** Pointer at function handling authentication, may be NULL */
-struct user *(*auth)(struct req *req);
+/* prototypes */
+static void scan_dir(const char *dir);
 
 /****************************************************/
 
@@ -53,24 +53,26 @@ static void finish() { unlink(R.pidfile); exit(0); }
 /** Prints usage help screen */
 static void help(void)
 {
-	printf("Usage: rpcd [OPTIONS] <CONFIG-DIR>\n");
+	printf("Usage: rpcd [OPTIONS] <DIR1> [<DIR2>...]\n");
 	printf("\n");
-	printf("  A JSON-RPC server. <CONFIG-DIR> contains Flatconf datatree describing\n");
-	printf("  the application to serve.\n");
+	printf("  A JSON-RPC server. <DIR> contains modules to export\n");
 	printf("\n");
 	printf("Options:\n");
-	printf("  --json           read/write in JSON-RPC (default)\n");
-	printf("  --http           read/write in JSON-RPC over HTTP\n");
-	printf("  --rfc822         read/write in RFC822\n");
-	printf("  --noauth         disable auth\n");
+	printf("  --json            read/write in JSON-RPC (default)\n");
+	printf("  --rfc822          read/write in RFC822\n");
 	printf("\n");
-	printf("  --daemonize,-d   daemonize, log to syslog\n");
-	printf("  --pidfile=<path> where to write daemon PID to [%s]\n", RPCD_DEFAULT_PIDFILE);
-	printf("  --verbose        be verbose (alias for --debug=5)\n");
-	printf("  --debug=<num>    set debugging level\n");
+	printf("  --http            read/write in JSON-RPC over HTTP\n");
+	printf("  --htpasswd=<file> require HTTP authentication from file (plain passwords)\n");
+	printf("  --htdocs=<dir>    serve static HTTP docs from given dir\n");
 	printf("\n");
-	printf("  --help,-h        show this usage help screen\n");
-	printf("  --version,-v     show version and copying information\n");
+	printf("  --name=<name>     my name (by default take first rpcd dir)\n");
+	printf("  --daemonize,-d    daemonize, log to syslog\n");
+	printf("  --pidfile=<path>  where to write daemon PID to [%s]\n", RPCD_DEFAULT_PIDFILE);
+	printf("  --verbose         be verbose (alias for --debug=5)\n");
+	printf("  --debug=<num>     set debugging level\n");
+	printf("\n");
+	printf("  --help,-h         show this usage help screen\n");
+	printf("  --version,-v      show version and copying information\n");
 	return;
 }
 
@@ -83,18 +85,15 @@ static void version(void)
 	return;
 }
 
-/** Parses Command Line Arguments.
- * @param  argc  argc passed from main()
- * @param  argv  argv passed from main()
+/** Parses arguments and loads modules
  * @retval 0     error, main() should exit (eg. wrong arg. given)
  * @retval 1     ok
- * @retval 2     ok, but main() should exit (eg. on --version or --help)
- * @note   sets  R.fcdir */
+ * @retval 2     ok, but main() should exit (eg. on --version or --help) */
 static int parse_argv(int argc, char *argv[])
 {
 	int i, c;
 
-	static char *short_opts = "hvf";
+	static char *short_opts = "hvd";
 	static struct option long_opts[] = {
 		/* name, has_arg, NULL, short_ch */
 		{ "verbose",    0, NULL,  1  },
@@ -106,14 +105,18 @@ static int parse_argv(int argc, char *argv[])
 		{ "rfc822",     0, NULL,  7  },
 		{ "http",       0, NULL,  8  },
 		{ "json",       0, NULL,  9  },
-		{ "noauth",     0, NULL, 10  },
+		{ "name",       1, NULL, 10  },
+		{ "htpasswd",   1, NULL, 11  },
+		{ "htdocs",     1, NULL, 12  },
 		{ 0, 0, 0, 0 }
 	};
 
 	/* set defaults */
 	R.daemonize = false;
 	R.pidfile = RPCD_DEFAULT_PIDFILE;
-	R.noauth = false;
+	R.name = NULL;
+	R.htpasswd = NULL;
+
 	readreq = readjson;
 	writerep = writejson;
 
@@ -128,20 +131,28 @@ static int parse_argv(int argc, char *argv[])
 			case  3 : help(); return 2;
 			case 'v':
 			case  4 : version(); return 2;
-			case 'f':
+			case 'd':
 			case  5 : R.daemonize = 1; break;
 			case  6 : R.pidfile = optarg; break;
 			case  7 : readreq = read822;  writerep = write822; break;
 			case  8 : readreq = readhttp; writerep = writehttp; break;
 			case  9 : readreq = readjson; writerep = writejson; break;
-			case 10 : R.noauth = true; break;
+			case 10 : R.name = optarg; break;
+			case 11 : R.htpasswd = optarg; break;
+			case 12 : R.htdocs = optarg; break;
 			default: help(); return 0;
 		}
 	}
 
 	if (argc - optind < 1) { fprintf(stderr, "Not enough arguments\n"); help(); return 0; }
 
-	R.fcdir = argv[optind];
+	while (argc - optind > 0) {
+		if (R.name == NULL)
+			R.name = pb("rpcd %s", argv[optind]);
+
+		scan_dir(argv[optind++]);
+	}
+
 	return 1;
 }
 
@@ -204,9 +215,6 @@ static struct mod *load_module(const char *dir, const char *filename)
 	if (!mod->api->deinit)
 		mod->api->deinit = generic_deinit;
 
-	if (!mod->api->check)
-		mod->api->check = generic_check;
-
 	if (!mod->api->handle)
 		mod->api->handle = generic_handle;
 
@@ -229,14 +237,17 @@ static void scan_dir(const char *dir)
 	dbg(5, "scanning %s\n", dir);
 	tlist *ls = asn_ls(dir, mmtmp);
 
-	/* load globals first */
+	/* load the common module first */
 	TLIST_ITER_LOOP(ls, filename) {
-		if (asn_match(RPCD_GLOBAL_REGEX, filename)) {
+		if (asn_match(RPCD_COMMON_REGEX, filename)) {
 			tlist_remove(ls);
+
+			if (thash_get(R.commons, mod->dir))
+				continue; /* already found one */
 
 			mod = load_module(dir, filename);
 			if (mod)
-				thash_set(R.globals, mod->dir, mod);
+				thash_set(R.commons, mod->dir, mod);
 		}
 	}
 
@@ -247,59 +258,6 @@ static void scan_dir(const char *dir)
 		if (mod)
 			thash_set(R.modules, mod->name, mod);
 	}
-}
-
-/** Parse Flatconf
- *
- * # load modules
- * # init auth system
- * # export whole config as FC_* environmental variables
- */
-static bool parse_flatconf(void)
-{
-	/* read Flatconf */
-	R.fc = asn_fcdir(R.fcdir, mm);
-	thash_dump(5, R.fc);
-
-	/* scan through fc:/dir and load modules */
-	{
-		tlist *dirs = asn_fcparselist(CFG("dir/list.order"), mm);
-		struct fcel *dir;
-
-		TLIST_ITER_LOOP(dirs, dir) {
-			if (dir->enabled)
-				scan_dir(dir->elname);
-		}
-	}
-
-	/* select authentication backend */
-	if (R.noauth == false) {
-		const char *a = CFG("auth");
-
-		if (streq(a, "internal"))
-			auth = authinternal;
-		else if (streq(a, "system"))
-			auth = authsystem;
-
-		/* announce */
-		if (auth)
-			R.auth = true;
-	}
-
-	/* export Flatconf as initial bot environment */
-	{
-		char *k, *v;
-		THASH_ITER_LOOP(R.fc, k, v) {
-			/* Remarks:
-			 * 1. we filter Flatconf names so they could be accepted by shell
-			 * 2. pbt() is passed as key, because hash is in strings mode and it'll be copied, not referenced */
-			thash_set(R.env,
-				pbt("FC_%s", asn_replace("/[^a-zA-Z0-9_]/", "_", k, mm)),
-				v);
-		}
-	}
-
-	return true;
 }
 
 /******************************************************/
@@ -324,6 +282,7 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 		case JSON_RPC_HTTP_GET:
 		case JSON_RPC_HTTP_OPTIONS:    msg = "OK"; break;
 		case JSON_RPC_HTTP_NOT_FOUND:  msg = "Document not found"; break;
+		case JSON_RPC_ERROR:           msg = "Error"; break;
 	}
 
 	if (!data)
@@ -337,14 +296,14 @@ int main(int argc, char *argv[])
 {
 	char *k;
 	struct req *req;
-	struct mod *mod, *global;
+	struct mod *mod, *common;
 	json *js;
 
 	/* init some vars */
 	mm = mmatic_create();
 	mmtmp = mmatic_create();
 	R.modules  = MMTHASH_CREATE_STR(free_mod);
-	R.globals  = MMTHASH_CREATE_STR(free_mod);
+	R.commons  = MMTHASH_CREATE_STR(free_mod);
 	R.env      = MMTHASH_CREATE_STR(NULL); /* free fn not needed */
 
 	/* setup signal handling */
@@ -355,17 +314,14 @@ int main(int argc, char *argv[])
 
 	/**********************/
 
-	/* parse arguments */
-	switch (parse_argv(argc, argv)) { case 0: exit(1); case 2: exit(0); }
+	/* parse arguments and load modules */
+	switch (parse_argv(argc, argv)) {
+		case 0: exit(1);
+		case 2: exit(0);
+	}
 
-	/* parse Flatconf */
-	if (!parse_flatconf())
-		exit(1);
-
-	/**********************/
-
-	/* initialize global modules */
-	THASH_ITER_LOOP(R.globals, k, mod)
+	/* initialize common modules */
+	THASH_ITER_LOOP(R.commons, k, mod)
 		mod->api->init(mod);
 
 	/* initialize modules */
@@ -373,7 +329,7 @@ int main(int argc, char *argv[])
 		mod->api->init(mod);
 
 	if (R.daemonize)
-		asn_daemonize(CFG("name"), R.pidfile);
+		asn_daemonize(R.name, R.pidfile);
 
 	int read_status;
 
@@ -400,7 +356,7 @@ int main(int argc, char *argv[])
 			dbg(5, "%s\n", ut_char(req->query));
 
 		/* authenticate */
-		if (R.auth && auth) {
+		if (R.htpasswd) {
 			req->user = auth(req);
 
 			if (!req->user) {
@@ -420,30 +376,23 @@ int main(int argc, char *argv[])
 			goto reply;
 		}
 
-		/* find global module */
-		global = thash_get(R.globals, req->mod->dir);
+		/* find common module */
+		common = thash_get(R.commons, req->mod->dir);
 
-		/* check firewall */
-		if ((global && global->fw && !generic_fw(req, global->fw)) ||
+		/* check the common firewall */
+		if ((common && common->fw && !generic_fw(req, common->fw)) ||
 		    (req->mod->fw && !generic_fw(req, req->mod->fw))) {
 			if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
 			goto reply;
 		}
 
-		/* check arguments */
-		if ((global && !global->api->check(req, req->mm)) ||
-		    (!req->mod->api->check(req, req->mm))) {
-			if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
-			goto reply;
-		}
-
-		/* simpler handle() implementation */
+		/* for simpler handle() implementation */
 		req->reply = ut_new_thash(NULL, req->mm);
 
 		/* handle */
 		if ((!req->mod->api->handle(req, req->mm)) ||
-		    (global && !global->api->handle(req, req->mm))) {
-			if (ut_ok(req->reply)) errcode(JSON_RPC_INTERNAL_ERROR);
+		    (common && !common->api->handle(req, req->mm))) {
+			if (ut_ok(req->reply)) errcode(JSON_RPC_ERROR);
 			goto reply;
 		}
 

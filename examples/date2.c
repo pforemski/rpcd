@@ -1,14 +1,9 @@
 #include <time.h>
 #include "../rpcd.h"
 
-static bool init(const char *name)
+static bool init(struct mod *mod)
 {
 	dbg(1, "module date2 initialized\n");
-	return true;
-}
-
-static bool check(struct req *req, mmatic *mm)
-{
 	return true;
 }
 
@@ -22,15 +17,13 @@ static bool handle(struct req *req, mmatic *mm)
 	tmp = localtime(&t);
 	strftime(buf, sizeof(buf), "%F %T", tmp);
 
-	req->rep = ut_new_thash(NULL, mm);
-	uth_add_char(req->rep, "date", mmstrdup(buf));
+	uth_set_char(req->reply, "date", mmstrdup(buf));
 
 	return true;
 }
 
-struct api date2_module = {
+struct api date2_api = {
+	.magic  = RPCD_MAGIC,
 	.init   = init,
-	.deinit = NULL,
-	.check  = check,
 	.handle = handle
 };

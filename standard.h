@@ -13,12 +13,14 @@
 
 /* XXX: see also rep.c/rep_set_error() */
 enum json_errcode {
+	/* errors reserved in the spec */
 	JSON_RPC_PARSE_ERROR     = -32700,
 	JSON_RPC_INVALID_REQUEST = -32600,
 	JSON_RPC_NOT_FOUND       = -32601,
 	JSON_RPC_INVALID_PARAMS  = -32602,
 	JSON_RPC_INTERNAL_ERROR  = -32603,
 
+	/* implementation specific errors */
 	JSON_RPC_ACCESS_DENIED   = -32099,
 	JSON_RPC_OUT_PARSE_ERROR = -32098,
 	JSON_RPC_INVALID_INPUT   = -32097,
@@ -26,6 +28,7 @@ enum json_errcode {
 	JSON_RPC_HTTP_OPTIONS    = -32095,
 	JSON_RPC_HTTP_GET        = -32094,
 	JSON_RPC_HTTP_NOT_FOUND  = -32093,
+	JSON_RPC_ERROR           = -32092,
 };
 
 enum http_type {
