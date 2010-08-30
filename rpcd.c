@@ -242,7 +242,7 @@ static void scan_dir(const char *dir)
 		if (asn_match(RPCD_COMMON_REGEX, filename)) {
 			tlist_remove(ls);
 
-			if (thash_get(R.commons, mod->dir))
+			if (thash_get(R.commons, dir))
 				continue; /* already found one */
 
 			mod = load_module(dir, filename);
