@@ -158,6 +158,20 @@ static int parse_argv(int argc, char *argv[])
 
 /******************************************************/
 
+/** Run init() in given modules */
+void init_modules(thash *modules)
+{
+	char *k;
+	struct mod *mod;
+
+	THASH_ITER_LOOP(modules, k, mod) {
+		if (!mod->api->init(mod)) {
+			fprintf(stderr, "Module initialization failed: %s\n", mod->path);
+			exit(1);
+		}
+	}
+}
+
 /** Load given module
  *
  * @param dir       directory containing module file
@@ -172,6 +186,7 @@ static struct mod *load_module(const char *dir, const char *filename)
 	mod->dir  = mmatic_strdup(dir, mm);
 	mod->name = asn_replace("/\\.[a-z]+$/", "", filename, mm);
 	mod->path = asn_abspath(pbt("%s/%s", mod->dir, filename), mm);
+	mod->mm = mm;
 
 	if (asn_isfile(mod->path) < 0)
 		goto skip;
@@ -232,7 +247,7 @@ skip:
 static void scan_dir(const char *dir)
 {
 	char *filename;
-	struct mod *mod;
+	struct mod *mod, *cmod = NULL;
 
 	dbg(5, "scanning %s\n", dir);
 	tlist *ls = asn_ls(dir, mmtmp);
@@ -242,12 +257,13 @@ static void scan_dir(const char *dir)
 		if (asn_match(RPCD_COMMON_REGEX, filename)) {
 			tlist_remove(ls);
 
-			if (thash_get(R.commons, dir))
-				continue; /* already found one */
-
 			mod = load_module(dir, filename);
-			if (mod)
+			if (mod) {
+				cmod = mod;
+				mod->cmod = mod;
 				thash_set(R.commons, mod->dir, mod);
+				break; /* first match wins */
+			}
 		}
 	}
 
@@ -255,8 +271,10 @@ static void scan_dir(const char *dir)
 	TLIST_ITER_LOOP(ls, filename) {
 		mod = load_module(dir, filename);
 
-		if (mod)
+		if (mod) {
+			mod->cmod = cmod;
 			thash_set(R.modules, mod->name, mod);
+		}
 	}
 }
 
@@ -316,13 +334,13 @@ int main(int argc, char *argv[])
 
 	/* parse arguments and load modules */
 	switch (parse_argv(argc, argv)) {
-		case 0: exit(1);
-		case 2: exit(0);
+		case 0: return 1;
+		case 2: return 0;
 	}
 
 	/* initialize common modules */
-	THASH_ITER_LOOP(R.commons, k, mod)
-		mod->api->init(mod);
+	init_modules(R.commons);
+	init_modules(R.modules);
 
 	/* initialize modules */
 	THASH_ITER_LOOP(R.modules, k, mod)
@@ -389,9 +407,9 @@ int main(int argc, char *argv[])
 		/* for simpler handle() implementation */
 		req->reply = ut_new_thash(NULL, req->mm);
 
-		/* handle */
-		if ((!req->mod->api->handle(req, req->mm)) ||
-		    (common && !common->api->handle(req, req->mm))) {
+		/* handle - run common/handle, then mod/handle */
+		if ((common && !common->api->handle(req, req->mm)) ||
+		    (!req->mod->api->handle(req, req->mm))) {
 			if (ut_ok(req->reply)) errcode(JSON_RPC_ERROR);
 			goto reply;
 		}

@@ -11,6 +11,7 @@
 #define _RPCD_H_
 
 #include <libasn/lib.h>
+#include "standard.h"
 
 #define RPCD_VER "0.2"
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
@@ -72,11 +73,15 @@ struct mod {
 	char *name;                        /** procedure name */
 	char *dir;                         /** directory path */
 	char *path;                        /** full path to module file (XXX: != dir/name)*/
-
 	enum modtype { C, JS, SH } type;   /** implemented in? */
 
 	struct api *api;                   /** implementation API */
 	struct fw *fw;                     /** array of firewall rules, ended by NULL */
+
+	struct mod *cmod;                  /** pointer to the directory's common module */
+	void *prv;                         /** implementation-dependent use */
+
+	mmatic *mm;                        /** copy of global mmatic */
 };
 
 /** Module API */
@@ -84,16 +89,18 @@ struct api {
 	uint32_t magic;                         /** for sanity checks */
 #define RPCD_MAGIC 0x13370002
 
-	/** Module initialization */
+	/** Module initialization
+	 * @param   mod   module instance, feel free to use mod->prv */
 	bool (*init)(struct mod *mod);
 
-	/** Module deinitialization */
+	/** Module deinitialization
+	 * @param   mod   module instance, feel free to use mod->prv */
 	bool (*deinit)(struct mod *mod);
 
 	/** RPC handler
 	 * @note          this variable may be null, meaning "just check the request"
 	 *
-	 * @param  req    user request
+	 * @param  req    user request, feel free to use req->prv
 	 * @param  mm     req->mm
 	 * @retval true   send reply to user, set reply to "true" if empty
 	 * @retval false  stop request, show error in rep or generic error */
@@ -118,7 +125,7 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	const char *cfile, unsigned int cline);
 
 #define err(code, msg, data) error(req, (code), (msg), (data), __FILE__, __LINE__)
-#define errcode(code) err((code),   NULL,  NULL)
-#define errmsg(msg)   err(    0,   (msg),  NULL)
+#define errcode(code)        err((code),          NULL,  NULL)
+#define errmsg(msg)          err(JSON_RPC_ERROR, (msg),  NULL)
 
 #endif

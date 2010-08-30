@@ -1,5 +1,6 @@
+# XXX: remove -lpthread in no-debugging versions
 CFLAGS =
-LDFLAGS = -lasn -ldl
+LDFLAGS = -lasn -ldl -lpthread
 
 OBJECTS=rpcd.o read.o write.o sh.o auth.o generic.o
 TARGETS=rpcd
