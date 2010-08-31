@@ -203,15 +203,17 @@ static struct mod *load_module(const char *dir, const char *filename)
 	} else if (streq(ext, ".so")) {
 		mod->type = C;
 
-		void *so = dlopen(mod->path, RTLD_NOW | RTLD_GLOBAL);
+		void *so = dlopen(mod->path, RTLD_LAZY | RTLD_GLOBAL);
 		if (!so) {
 			dbg(0, "%s failed: %s\n", mod->name, dlerror());
 			exit(1);
 		}
 
 		mod->api = dlsym(so, pbt("%s_api", mod->name));
-		if (!mod->api)
+		if (!mod->api) {
+			dbg(1, "%s: warning - no API found\n", mod->name);
 			mod->api = &generic_api;
+		}
 
 		mod->fw = dlsym(so, pbt("%s_fw", mod->name));
 	} else if (streq(ext, ".js")) {
