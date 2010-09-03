@@ -89,7 +89,7 @@ static void version(void)
  * @retval 0     error, main() should exit (eg. wrong arg. given)
  * @retval 1     ok
  * @retval 2     ok, but main() should exit (eg. on --version or --help) */
-static int parse_argv(int argc, char *argv[])
+static int init(int argc, char *argv[])
 {
 	int i, c;
 
@@ -177,8 +177,7 @@ void init_modules(thash *modules)
  * @param dir       directory containing module file
  * @param filename  name of module file (relative to dir)
  * @return          pointer to struct mod @mm
- * @retval NULL     loading failed
- */
+ * @retval NULL     loading failed */
 static struct mod *load_module(const char *dir, const char *filename)
 {
 	struct mod *mod;
@@ -245,7 +244,68 @@ skip:
 	return NULL;
 }
 
-/** Scan given directory for modules and load them */
+static void load_config(const char *dir, const char *filename)
+{
+	const char *filepath;
+	FILE *fp;
+	char buf[BUFSIZ], *str;
+	ut *ut, *val;
+	xstr *xs;
+	json *js;
+	char *key;
+	struct mod *mod;
+	thash *th;
+
+	filepath = asn_abspath(pbt("%s/%s", dir, filename), mmtmp);
+
+	/* read file contents, ignoring empty lines and comments */
+	fp = fopen(filepath, "r");
+
+	if (!fp) {
+		dbg(0, "%s: fopen() failed: %s\n", filepath, strerror(errno));
+		exit(1);
+	}
+
+	xs = xstr_create("{", mmtmp);
+	while (fgets(buf, sizeof(buf), fp)) {
+		str = asn_trim(buf);
+		if (!str[0] || str[0] == '#') continue;
+		xstr_append(xs, str);
+	}
+	xstr_append_char(xs, '}');
+
+	fclose(fp);
+
+	/* parse JSON */
+	js = json_create(mm);
+	json_setopt(js, JSON_LOOSE, 1);
+
+	ut = json_parse(js, xstr_string(xs));
+
+	if (!ut_ok(ut)) {
+		dbg(0, "%s: parsing failed: %s\n", filepath, ut_err(ut));
+		exit(1);
+	}
+
+	asnsert(ut_type(ut) == T_HASH);
+
+	/* find referenced modules and connect config to them */
+	th = ut_thash(ut);
+
+	THASH_ITER_LOOP(th, key, val) {
+		if (streq(key, "common"))
+			mod = thash_get(R.commons, dir);
+		else
+			mod = thash_get(R.modules, key);
+
+		if (mod)
+			mod->cfg = val;
+		else
+			dbg(1, "%s: could not find matching module for key '%s'\n", filepath, key);
+	}
+}
+
+/** Scan given directory for configuration files and modules and load them */
 static void scan_dir(const char *dir)
 {
 	char *filename;
@@ -277,6 +337,12 @@ static void scan_dir(const char *dir)
 			mod->cmod = cmod;
 			thash_set(R.modules, mod->name, mod);
 		}
+	}
+
+	/* parse config files */
+	TLIST_ITER_LOOP(ls, filename) {
+		if (streq(filename, RPCD_CONFIG_FILE))
+			load_config(dir, filename);
 	}
 }
 
@@ -314,9 +380,8 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 
 int main(int argc, char *argv[])
 {
-	char *k;
 	struct req *req;
-	struct mod *mod, *common;
+	struct mod *common;
 	json *js;
 
 	/* init some vars */
@@ -335,7 +400,7 @@ int main(int argc, char *argv[])
 	/**********************/
 
 	/* parse arguments and load modules */
-	switch (parse_argv(argc, argv)) {
+	switch (init(argc, argv)) {
 		case 0: return 1;
 		case 2: return 0;
 	}
@@ -343,10 +408,6 @@ int main(int argc, char *argv[])
 	/* initialize common modules */
 	init_modules(R.commons);
 	init_modules(R.modules);
-
-	/* initialize modules */
-	THASH_ITER_LOOP(R.modules, k, mod)
-		mod->api->init(mod);
 
 	if (R.daemonize)
 		asn_daemonize(R.name, R.pidfile);

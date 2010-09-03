@@ -17,6 +17,7 @@
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
 
 #define RPCD_COMMON_REGEX "/^common\\.[a-z]+$/"
+#define RPCD_CONFIG_FILE "rpcd.conf"
 
 struct rpcd;
 struct req;
@@ -74,6 +75,8 @@ struct mod {
 	char *dir;                         /** directory path */
 	char *path;                        /** full path to module file (XXX: != dir/name)*/
 	enum modtype { C, JS, SH } type;   /** implemented in? */
+
+	ut *cfg;                           /** module configuration */
 
 	struct api *api;                   /** implementation API */
 	struct fw *fw;                     /** array of firewall rules, ended by NULL */
