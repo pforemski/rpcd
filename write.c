@@ -4,7 +4,13 @@
  * All rights reserved
  */
 
+#define _GNU_SOURCE
+
 #include "common.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 static char *common(struct req *req)
 {
@@ -42,13 +48,89 @@ void write822(struct req *req)
 	}
 }
 
-void writehttp(struct req *req)
+bool writehttp_get(struct req *req)
 {
 	int code = 200;
 	char *msg = "OK";
-	char *type = "application/json-rpc";
-	char *header = "";
-	char *txt;
+	const char *type = "application/octet-stream";
+	char date[128];
+	struct stat ss;
+	char *ms, *ext, buf[BUFSIZ];
+	int fd = 0, r;
+	time_t now;
+	struct tm mod_client;
+	struct tm mod_server;
+
+	/* check file */
+	if (stat(req->uripath, &ss) == -1)
+		return errsys("stat()");
+
+	/* date/time stuff */
+	now = time(NULL);
+	gmtime_r(&ss.st_mtime, &mod_server);
+
+	/* dont open the file if client is up to date */
+	if ((ms = thash_get(req->hh, "If-Modified-Since")) &&
+		strptime(ms, RFC_DATETIME, &mod_client) != NULL &&
+		mktime(&mod_client) >= mktime(&mod_server)) {
+		code = 304;
+		msg = "Not Modified";
+	} else {
+		fd = open(req->uripath, O_RDONLY, O_NOATIME);
+
+		if (fd == -1)
+			return errsys("open()");
+	}
+
+	/* say hello */
+	printf("HTTP/1.1 %u %s\n", code, msg);
+	printf("Server: rpcd\n");
+	printf("Connection: %s\n", req->last ? "Close" : "Keep-alive");
+
+	strftime(date, sizeof date, RFC_DATETIME, gmtime(&now));
+	printf("Date: %s\n", date);
+
+	if (code == 200) {
+		strftime(date, sizeof date, RFC_DATETIME, &mod_server);
+		printf("Last-Modified: %s\n", date);
+
+		/* XXX: expire in 1h */
+		now += 3600;
+		strftime(date, sizeof date, RFC_DATETIME, gmtime(&now));
+		printf("Expires: %s\n", date);
+
+		/* MIME stuff */
+		if ((ext = strrchr(req->uripath, '.')))
+			type = asn_ext2mime(ext + 1);
+
+		printf("Content-Type: %s\n", type);
+		printf("Content-Length: %u\n", (unsigned int) ss.st_size);
+	}
+
+	/* headers end */
+	printf("\n");
+	fflush(stdout);
+
+	if (code == 200) {
+		/* send file */
+		while ((r = read(fd, buf, sizeof buf)) > 0)
+			write(1, buf, r);
+	}
+
+	return true;
+}
+
+void writehttp(struct req *req)
+{
+	int code = 200;
+	char *msg = "OK", *txt = "", *header = "";
+	const char *type = "application/json-rpc";
+	time_t now;
+	char date[128];
+
+	/* get current time */
+	now = time(NULL);
+	strftime(date, sizeof date, RFC_DATETIME, gmtime(&now));
 
 	if (!ut_ok(req->reply)) switch (ut_errcode(req->reply)) {
 		case JSON_RPC_PARSE_ERROR:
@@ -91,12 +173,9 @@ void writehttp(struct req *req)
 			goto printtxt;
 
 		case JSON_RPC_HTTP_GET:
-			txt = asn_readfile(req->uripath, req->mm);
-
-			if (txt) {
-				type = "text/html"; /* FIXME */
-				goto printtxt;
-			} /* else fall-through */
+			if (writehttp_get(req))
+				return;
+			/* else fall-through */
 
 		default:
 			code = 500;
@@ -110,13 +189,16 @@ printtxt:
 	printf(
 		"HTTP/1.1 %d %s\n"
 		"Server: rpcd\n"
+		"Date: %s\n"
+		"Connection: %s\n"
 		"%s"
 		"Content-Type: %s\n"
 		"Content-Length: %d\n"
-		"Connection: %s\n\n"
+		"\n"
 		"%s\n",
-		code, msg, header, type, (int) strlen(txt) + 1,
+		code, msg, date,
 		(req->last ? "Close" : "Keep-alive"),
+		header, type, (int) strlen(txt) + 1,
 		txt);
 
 	fflush(stdout);

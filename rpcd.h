@@ -54,7 +54,7 @@ struct req {
 	const char *id;          /** optional ID, if present */
 	const char *method;      /** called procedure */
 
-	ut *query;               /** the "params" argument */
+	ut *params;              /** the "params" argument */
 	ut *reply;               /** reply, may be NULL */
 
 	struct mod *mod;         /** handler module */
@@ -62,6 +62,7 @@ struct req {
 	thash *env;              /** request environment, initially cloned from R.env */
 	void *prv;               /** for use by module */
 
+	thash *hh;               /** if not NULL, holds HTTP headers */
 	const char *claim_user;  /** requester claims to be this user */
 	const char *claim_pass;  /** and gives us this password to verify him */
 	const char *user;        /** if not null, points at authenticated user */
@@ -127,8 +128,13 @@ extern mmatic *mmtmp;
 bool error(struct req *req, int code, const char *msg, const char *data,
 	const char *cfile, unsigned int cline);
 
+/** Make an internal rpcd sub-request */
+struct req *request(const char *method, ut *params);
+
 #define err(code, msg, data) error(req, (code), (msg), (data), __FILE__, __LINE__)
 #define errcode(code)        err((code),          NULL,  NULL)
 #define errmsg(msg)          err(JSON_RPC_ERROR, (msg),  NULL)
+#define errsys(ctx)          err(JSON_RPC_ERROR, strerror(errno), \
+                                 mmatic_printf(req->mm, "%s: errno %d in %s#%u", (ctx), errno, __FILE__, __LINE__))
 
 #endif

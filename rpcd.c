@@ -53,7 +53,7 @@ static void finish() { unlink(R.pidfile); exit(0); }
 /** Prints usage help screen */
 static void help(void)
 {
-	printf("Usage: rpcd [OPTIONS] <DIR1> [<DIR2>...]\n");
+	printf("Usage: rpcd [OPTIONS] [<DIR1>=.] [<DIR2>...]\n");
 	printf("\n");
 	printf("  A JSON-RPC server. <DIR> contains modules to export\n");
 	printf("\n");
@@ -144,13 +144,16 @@ static int init(int argc, char *argv[])
 		}
 	}
 
-	if (argc - optind < 1) { fprintf(stderr, "Not enough arguments\n"); help(); return 0; }
+	if (argc - optind < 1) {
+		R.name = "rpcd";
+		scan_dir(".");
+	} else {
+		while (argc - optind > 0) {
+			if (R.name == NULL)
+				R.name = pb("rpcd %s", argv[optind]);
 
-	while (argc - optind > 0) {
-		if (R.name == NULL)
-			R.name = pb("rpcd %s", argv[optind]);
-
-		scan_dir(argv[optind++]);
+			scan_dir(argv[optind++]);
+		}
 	}
 
 	return 1;
@@ -378,10 +381,61 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	return false;
 }
 
+static void handle(struct req *req)
+{
+	struct mod *common;
+
+	/* find handler */
+	if (!req->method ||
+		!(req->mod = thash_get(R.modules, req->method))) {
+		errcode(JSON_RPC_NOT_FOUND);
+		goto reply;
+	}
+
+	/* find common module */
+	common = thash_get(R.commons, req->mod->dir);
+
+	/* check the common firewall */
+	if ((common && common->fw && !generic_fw(req, common->fw)) ||
+		(req->mod->fw && !generic_fw(req, req->mod->fw))) {
+		if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
+		goto reply;
+	}
+
+	/* for simpler handle() implementation */
+	req->reply = ut_new_thash(NULL, req->mm);
+
+	/* handle - run common/handle, then mod/handle */
+	if ((common && !common->api->handle(req, req->mm)) ||
+		(!req->mod->api->handle(req, req->mm))) {
+		if (ut_ok(req->reply)) errcode(JSON_RPC_ERROR);
+		goto reply;
+	}
+
+reply:
+	if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
+}
+
+struct req *request(const char *method, ut *params)
+{
+	/* TODO: merge with main */
+	struct req *req;
+
+	req = mmatic_zalloc(sizeof(*req), mmtmp);
+	req->mm = mmtmp;
+	req->env = thash_clone(R.env, mmtmp);
+
+	req->method = method;
+	req->params = params;
+
+	handle(req);
+
+	return req;
+}
+
 int main(int argc, char *argv[])
 {
 	struct req *req;
-	struct mod *common;
 	json *js;
 
 	/* init some vars */
@@ -433,8 +487,8 @@ int main(int argc, char *argv[])
 			goto reply;
 
 		/* dump it for debugging purposes */
-		if (read_status == 1 && req->query) /* all OK */
-			dbg(5, "%s\n", ut_char(req->query));
+		if (read_status == 1 && req->params) /* all OK */
+			dbg(5, "%s\n", ut_char(req->params));
 
 		/* authenticate */
 		if (R.htpasswd) {
@@ -450,36 +504,8 @@ int main(int argc, char *argv[])
 		if (read_status == 2)
 			goto reply;
 
-		/* find handler */
-		if (!req->method ||
-		    !(req->mod = thash_get(R.modules, req->method))) {
-			errcode(JSON_RPC_NOT_FOUND);
-			goto reply;
-		}
-
-		/* find common module */
-		common = thash_get(R.commons, req->mod->dir);
-
-		/* check the common firewall */
-		if ((common && common->fw && !generic_fw(req, common->fw)) ||
-		    (req->mod->fw && !generic_fw(req, req->mod->fw))) {
-			if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
-			goto reply;
-		}
-
-		/* for simpler handle() implementation */
-		req->reply = ut_new_thash(NULL, req->mm);
-
-		/* handle - run common/handle, then mod/handle */
-		if ((common && !common->api->handle(req, req->mm)) ||
-		    (!req->mod->api->handle(req, req->mm))) {
-			if (ut_ok(req->reply)) errcode(JSON_RPC_ERROR);
-			goto reply;
-		}
-
+		handle(req);
 reply:
-		if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
-
 		writerep(req);
 	} while (req->last == false);
 

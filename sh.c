@@ -26,9 +26,9 @@ bool sh_handle(struct req *req, mmatic *mm)
 	ut *v;
 	char *k;
 
-	switch (ut_type(req->query)) {
+	switch (ut_type(req->params)) {
 		case T_LIST: // FIXME: security?
-			qp = ut_tlist(req->query);
+			qp = ut_tlist(req->params);
 			args = MMTLIST_CREATE(NULL);
 
 			TLIST_ITER_LOOP(qp, v)
@@ -36,7 +36,7 @@ bool sh_handle(struct req *req, mmatic *mm)
 			break;
 
 		case T_HASH:
-			qh = ut_thash(req->query);
+			qh = ut_thash(req->params);
 			env = MMTHASH_CREATE_STR(NULL);
 
 			THASH_ITER_LOOP(qh, k, v)

@@ -31,14 +31,14 @@ bool generic_fw(struct req *req, struct fw *fw)
 	if (!fw)
 		return true;
 
-	if (!ut_is_thash(req->query))
+	if (!ut_is_thash(req->params))
 		return err(JSON_RPC_INVALID_PARAMS, "Expected parameters in a hash object", NULL);
 
 	ut *param;
 	for (; fw->name; fw++) {
 		dbg(5, "%s: checking\n", fw->name);
 
-		param = uth_get(req->query, fw->name);
+		param = uth_get(req->params, fw->name);
 		if (!param) {
 			if (fw->required)
 				return err(JSON_RPC_INVALID_PARAMS, "Parameter required", fw->name);
@@ -49,13 +49,13 @@ bool generic_fw(struct req *req, struct fw *fw)
 		if (ut_type(param) != fw->type) {
 			dbg(5, "%s: converting\n", fw->name);
 			switch (fw->type) {
-				case T_PTR:    uth_set_ptr(req->query,    fw->name, ut_ptr(param));    break;
-				case T_BOOL:   uth_set_bool(req->query,   fw->name, ut_bool(param));   break;
-				case T_INT:    uth_set_int(req->query,    fw->name, ut_int(param));    break;
-				case T_DOUBLE: uth_set_double(req->query, fw->name, ut_double(param)); break;
-				case T_STRING: uth_set_xstr(req->query,   fw->name, ut_xstr(param));   break;
-				case T_LIST:   uth_set_tlist(req->query , fw->name, ut_tlist(param));  break;
-				case T_HASH:   uth_set_thash(req->query,  fw->name, ut_thash(param));  break;
+				case T_PTR:    uth_set_ptr(req->params,    fw->name, ut_ptr(param));    break;
+				case T_BOOL:   uth_set_bool(req->params,   fw->name, ut_bool(param));   break;
+				case T_INT:    uth_set_int(req->params,    fw->name, ut_int(param));    break;
+				case T_DOUBLE: uth_set_double(req->params, fw->name, ut_double(param)); break;
+				case T_STRING: uth_set_xstr(req->params,   fw->name, ut_xstr(param));   break;
+				case T_LIST:   uth_set_tlist(req->params , fw->name, ut_tlist(param));  break;
+				case T_HASH:   uth_set_thash(req->params,  fw->name, ut_thash(param));  break;
 				case T_NULL:
 				case T_ERR:
 					dbg(0, "%s: %s_fw: %s: invalid type\n", req->mod->path, req->mod->name, fw->name);
@@ -64,7 +64,7 @@ bool generic_fw(struct req *req, struct fw *fw)
 			}
 
 			/* get converted value */
-			param = uth_get(req->query, fw->name);
+			param = uth_get(req->params, fw->name);
 			asnsert(param);
 		}
 

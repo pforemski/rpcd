@@ -37,4 +37,6 @@ enum http_type {
 	OPTIONS
 };
 
+#define RFC_DATETIME "%a, %d %b %Y %H:%M:%S GMT"
+
 #endif
