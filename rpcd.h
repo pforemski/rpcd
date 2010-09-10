@@ -11,130 +11,53 @@
 #define _RPCD_H_
 
 #include <libasn/lib.h>
-#include "standard.h"
+
+/***************************************************************************************************/
 
 #define RPCD_VER "0.2"
+#define RPCD_DEFAULT_CONFIGFILE "/etc/rpcd.conf"
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
 
-#define RPCD_COMMON_REGEX "/^common\\.[a-z]+$/"
-#define RPCD_CONFIG_FILE "rpcd.conf"
+/***************************************************************************************************/
 
-struct rpcd;
-struct req;
-struct mod;
-struct api;
+struct rpcd;                           /** Global rpcd instance representation */
+struct svc;                            /** JSON-RPC "service" */
+struct dir;                            /** Directory holding modules */
+struct mod;                            /** JSON-RPC "method" */
+struct req;                            /** Representation of request, including the reply */
+struct api;                            /** Links to functions implementing given module */
+struct fw;                             /** Represents one rule in module "parameter firewall" */
 
-/** Global data root */
-struct rpcd {
-	const char *pidfile;     /** path to store PID in */
-	const char *name;        /** syslog name */
-	bool daemonize;          /** start in background? */
+/***************************************************************************************************/
 
-	const char *htpasswd;    /** if not empty, authenticate HTTP queries */
-	const char *htdocs;      /** if not empty, serve static GET queries from this dir */
+/** Initialize rpcd
+ * @param config_file  rpcd configuration file:
+ *                     if its NULL, RPCD_DEFAULT_CONFIGFILE is used as default
+ *                     if the string is empty, rpcd is started with no configuration
+ *                     if the string starts with "/" or "./" its interpreted as file path
+ *                     otherwise passed string is interpreted as config for service named "rpcd"
+ * @retval NULL        something failed - see debug messages for info
+ * @return             rpcd handle, which is ready */
+struct rpcd *rpcd_init(const char *config_file);
 
-	thash *modules;          /** char name -> struct mod */
-	thash *commons;          /** char directory -> struct mod: common modules */
-	thash *env;              /** char name -> char val: common environment skeleton */
-} R;
+/** Deinitialize rpcd, freeing memory
+ * @param rpcd         rpcd handle
+ * @note make sure not to use any memory taken from rpcd after calling rpcd_deinit() */
+void rpcd_deinit(struct rpcd *rpcd);
 
-/** A simple "parameter firewall" rule */
-struct fw {
-	const char *name;        /** parameter name */
-	bool required;           /** if true, fail if parameter not found */
-	enum ut_type type;       /** parameter type
-	                           * @note its important, because properly done conversion will ensure
-	                           *       economic memory usage */
-	const char *regexp;      /** regexp to run against ut_char(param) */
-};
+/** Load given directory of modules into default service */
+bool rpcd_dir_load(struct rpcd *rpcd, const char *path);
 
-/** A JSON-RPC request representation */
-struct req {
-	const char *uripath;     /** full path to optional HTTP URI */
-	const char *id;          /** optional ID, if present */
-	const char *method;      /** called procedure */
+/** Make a request
+ * @param rpcd         rpcd handle
+ * @param method       name of the method to call
+ * @param params       unitype object (see libasn) with parameters, may be NULL
+ * @return unitype object with reply
+ * @note remember to call rpcd_reqfree() after you're done with returned object */
+ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params);
 
-	ut *params;              /** the "params" argument */
-	ut *reply;               /** reply, may be NULL */
-
-	struct mod *mod;         /** handler module */
-	mmatic *mm;              /** mmatic that will be flushed after handling */
-	thash *env;              /** request environment, initially cloned from R.env */
-	void *prv;               /** for use by module */
-
-	thash *hh;               /** if not NULL, holds HTTP headers */
-	const char *claim_user;  /** requester claims to be this user */
-	const char *claim_pass;  /** and gives us this password to verify him */
-	const char *user;        /** if not null, points at authenticated user */
-
-	bool last;               /** if true, exit after handling this request */
-};
-
-/** Module representation */
-struct mod {
-	char *name;                        /** procedure name */
-	char *dir;                         /** directory path */
-	char *path;                        /** full path to module file (XXX: != dir/name)*/
-	enum modtype { C, JS, SH } type;   /** implemented in? */
-
-	ut *cfg;                           /** module configuration */
-
-	struct api *api;                   /** implementation API */
-	struct fw *fw;                     /** array of firewall rules, ended by NULL */
-
-	struct mod *cmod;                  /** pointer to the directory's common module */
-	void *prv;                         /** implementation-dependent use */
-
-	mmatic *mm;                        /** copy of global mmatic */
-};
-
-/** Module API */
-struct api {
-	uint32_t magic;                         /** for sanity checks */
-#define RPCD_MAGIC 0x13370002
-
-	/** Module initialization
-	 * @param   mod   module instance, feel free to use mod->prv */
-	bool (*init)(struct mod *mod);
-
-	/** Module deinitialization
-	 * @param   mod   module instance, feel free to use mod->prv */
-	bool (*deinit)(struct mod *mod);
-
-	/** RPC handler
-	 * @note          this variable may be null, meaning "just check the request"
-	 *
-	 * @param  req    user request, feel free to use req->prv
-	 * @param  mm     req->mm
-	 * @retval true   send reply to user, set reply to "true" if empty
-	 * @retval false  stop request, show error in rep or generic error */
-	bool (*handle)(struct req *req, mmatic *mm);
-
-	void *prv;                         /** implementation-dependent use */
-};
-
-/********************************************************************/
-
-/** Global mmatic flushed on program end */
-extern mmatic *mm;
-#define pb(...) (mmatic_printf(mm, __VA_ARGS__))
-
-/** Temporary mmatic flushed after each query */
-extern mmatic *mmtmp;
-#define pbt(...) (mmatic_printf(mmtmp, __VA_ARGS__))
-
-/** Sets error in req->reply
- * @return false */
-bool error(struct req *req, int code, const char *msg, const char *data,
-	const char *cfile, unsigned int cline);
-
-/** Make an internal rpcd sub-request */
-struct req *request(const char *method, ut *params);
-
-#define err(code, msg, data) error(req, (code), (msg), (data), __FILE__, __LINE__)
-#define errcode(code)        err((code),          NULL,  NULL)
-#define errmsg(msg)          err(JSON_RPC_ERROR, (msg),  NULL)
-#define errsys(ctx)          err(JSON_RPC_ERROR, strerror(errno), \
-                                 mmatic_printf(req->mm, "%s: errno %d in %s#%u", (ctx), errno, __FILE__, __LINE__))
+/** Free memory occupied by results of an rpcd request
+ * @param reply        object returned by rpcd_request() */
+void rpcd_reqfree(ut *reply);
 
 #endif

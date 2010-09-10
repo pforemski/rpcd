@@ -4,10 +4,13 @@
  * All rights reserved
  */
 
+#include <signal.h>
 #include "common.h"
 
 bool sh_init(struct mod *mod)
 {
+	signal(SIGPIPE, SIG_IGN);
+
 	dbg(1, "%s: initialized\n", mod->path);
 	return true;
 }
@@ -19,7 +22,8 @@ bool sh_deinit(struct mod *mod)
 }
 
 // FIXME
-bool sh_handle(struct req *req, mmatic *mm)
+#define mm req
+bool sh_handle(struct req *req)
 {
 	thash *env = NULL, *qh = NULL;
 	tlist *args = NULL, *qp = NULL;
@@ -57,13 +61,13 @@ bool sh_handle(struct req *req, mmatic *mm)
 	if (rc != 0) {
 		return err(rc, xstr_string(out), xstr_string(err));
 	} else {
-		req->reply = ut_new_thash(rfc822_parse(xstr_string(out), req->mm), req->mm);
+		req->reply = ut_new_thash(rfc822_parse(xstr_string(out), req), req);
 		return true;
 	}
 }
 
 struct api sh_api = {
-	.magic  = RPCD_MAGIC,
+	.tag    = RPCD_TAG,
 	.init   = sh_init,
 	.deinit = sh_deinit,
 	.handle = sh_handle,

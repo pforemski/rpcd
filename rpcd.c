@@ -11,189 +11,87 @@
 
 #include <stdio.h>
 #include <unistd.h>
-#include <getopt.h>
-#include <signal.h>
 #include <dlfcn.h>
 #include <libasn/lib.h>
 #include "common.h"
 
-__USE_LIBASN
-
-mmatic *mm;
-mmatic *mmtmp;
-
-/** Pointer at function reading new request */
-int (*readreq)(struct req *req);
-
-/** Pointer at function writing reply */
-void (*writerep)(struct req *req);
-
-/* prototypes */
-static void scan_dir(const char *dir);
-
-/****************************************************/
-
-static void free_mod(void *ptr)
+/** Parse config file
+ * @retval NULL   failed */
+static ut *read_config(struct rpcd *rpcd, const char *config_file)
 {
-	struct mod *mod = (struct mod *) ptr;
+	FILE *fp;
+	xstr *xs;
+	char buf[BUFSIZ], *str;
+	json *js;
+	ut *cfg;
 
-	mmfreeptr(mod->name);
-	mmfreeptr(mod->dir);
-	mmfreeptr(mod->path);
-}
-
-/****************************************************/
-
-/** SIGUSR1 handler which shows mm dump */
-static void show_memory() { if (mm) mmatic_summary(mm, 0); }
-
-/** SIGTERM/INT handler */
-static void finish() { unlink(R.pidfile); exit(0); }
-
-/** Prints usage help screen */
-static void help(void)
-{
-	printf("Usage: rpcd [OPTIONS] [<DIR1>=.] [<DIR2>...]\n");
-	printf("\n");
-	printf("  A JSON-RPC server. <DIR> contains modules to export\n");
-	printf("\n");
-	printf("Options:\n");
-	printf("  --json            read/write in JSON-RPC (default)\n");
-	printf("  --rfc822          read/write in RFC822\n");
-	printf("\n");
-	printf("  --http            read/write in JSON-RPC over HTTP\n");
-	printf("  --htpasswd=<file> require HTTP authentication from file (plain passwords)\n");
-	printf("  --htdocs=<dir>    serve static HTTP docs from given dir\n");
-	printf("\n");
-	printf("  --name=<name>     my name (by default take first rpcd dir)\n");
-	printf("  --daemonize,-d    daemonize, log to syslog\n");
-	printf("  --pidfile=<path>  where to write daemon PID to [%s]\n", RPCD_DEFAULT_PIDFILE);
-	printf("  --verbose         be verbose (alias for --debug=5)\n");
-	printf("  --debug=<num>     set debugging level\n");
-	printf("\n");
-	printf("  --help,-h         show this usage help screen\n");
-	printf("  --version,-v      show version and copying information\n");
-	return;
-}
-
-/** Prints version and copying information. */
-static void version(void)
-{
-	printf("rpcd %s\n", RPCD_VER);
-	printf("Copyright (C) 2009-2010 ASN Sp. z o.o.\n");
-	printf("All rights reserved.\n");
-	return;
-}
-
-/** Parses arguments and loads modules
- * @retval 0     error, main() should exit (eg. wrong arg. given)
- * @retval 1     ok
- * @retval 2     ok, but main() should exit (eg. on --version or --help) */
-static int init(int argc, char *argv[])
-{
-	int i, c;
-
-	static char *short_opts = "hvd";
-	static struct option long_opts[] = {
-		/* name, has_arg, NULL, short_ch */
-		{ "verbose",    0, NULL,  1  },
-		{ "debug",      1, NULL,  2  },
-		{ "help",       0, NULL,  3  },
-		{ "version",    0, NULL,  4  },
-		{ "daemonize",  0, NULL,  5  },
-		{ "pidfile",    1, NULL,  6  },
-		{ "rfc822",     0, NULL,  7  },
-		{ "http",       0, NULL,  8  },
-		{ "json",       0, NULL,  9  },
-		{ "name",       1, NULL, 10  },
-		{ "htpasswd",   1, NULL, 11  },
-		{ "htdocs",     1, NULL, 12  },
-		{ 0, 0, 0, 0 }
-	};
-
-	/* set defaults */
-	R.daemonize = false;
-	R.pidfile = RPCD_DEFAULT_PIDFILE;
-	R.name = NULL;
-	R.htpasswd = NULL;
-
-	readreq = readjson;
-	writerep = writejson;
-
-	for (;;) {
-		c = getopt_long(argc, argv, short_opts, long_opts, &i);
-		if (c == -1) break; /* end of options */
-
-		switch (c) {
-			case  1 : debug = 5; break;
-			case  2 : debug = atoi(optarg); break;
-			case 'h':
-			case  3 : help(); return 2;
-			case 'v':
-			case  4 : version(); return 2;
-			case 'd':
-			case  5 : R.daemonize = 1; break;
-			case  6 : R.pidfile = optarg; break;
-			case  7 : readreq = read822;  writerep = write822; break;
-			case  8 : readreq = readhttp; writerep = writehttp; break;
-			case  9 : readreq = readjson; writerep = writejson; break;
-			case 10 : R.name = optarg; break;
-			case 11 : R.htpasswd = optarg; break;
-			case 12 : R.htdocs = optarg; break;
-			default: help(); return 0;
-		}
+	if (config_file == NULL) {
+		config_file = RPCD_DEFAULT_CONFIGFILE;
 	}
 
-	if (argc - optind < 1) {
-		R.name = "rpcd";
-		scan_dir(".");
+	if (config_file[0] == '/' || (config_file[0] == '.' && config_file[1] == '/')) {
+		/* read file contents, ignoring empty lines and comments */
+		fp = fopen(config_file, "r");
+		if (!fp) {
+			dbg(1, "%s: fopen() failed: %s\n", config_file, strerror(errno));
+			return NULL;
+		}
+
+		xs = xstr_create("{", rpcd);
+		while (fgets(buf, sizeof buf, fp)) {
+			str = asn_trim(buf);
+			if (!str || !str[0] || str[0] == '#') continue;
+			xstr_append(xs, str);
+		}
+		xstr_append_char(xs, '}');
+		fclose(fp);
+
+		config_file = xstr_string(xs);
+	} else if (config_file[0]) {
+		config_file = mmatic_printf(rpcd, "{ rpcd = { %s } }", config_file);
+	}
+
+	if (config_file && config_file[0]) {
+		/* parse config file as loose JSON */
+		js = json_create(rpcd);
+		json_setopt(js, JSON_LOOSE, 1);
+
+		cfg = json_parse(js, config_file);
+		if (!ut_ok(cfg)) {
+			dbg(1, "Parsing config file failed: %s\n", ut_err(cfg));
+			return NULL;
+		}
 	} else {
-		while (argc - optind > 0) {
-			if (R.name == NULL)
-				R.name = pb("rpcd %s", argv[optind]);
-
-			scan_dir(argv[optind++]);
-		}
+		/* start with empty config */
+		cfg = ut_new_thash(NULL, rpcd);
 	}
 
-	return 1;
-}
-
-/******************************************************/
-
-/** Run init() in given modules */
-void init_modules(thash *modules)
-{
-	char *k;
-	struct mod *mod;
-
-	THASH_ITER_LOOP(modules, k, mod) {
-		if (!mod->api->init(mod)) {
-			fprintf(stderr, "Module initialization failed: %s\n", mod->path);
-			exit(1);
-		}
-	}
+	return cfg;
 }
 
 /** Load given module
  *
  * @param dir       directory containing module file
  * @param filename  name of module file (relative to dir)
- * @return          pointer to struct mod @mm
+ * @return          pointer to struct mod
  * @retval NULL     loading failed */
-static struct mod *load_module(const char *dir, const char *filename)
+static struct mod *load_module(struct dir *dir, const char *filename, bool *skipflag)
 {
 	struct mod *mod;
-	mod = mmatic_zalloc(sizeof(*mod), mm);
-	mod->dir  = mmatic_strdup(dir, mm);
-	mod->name = asn_replace("/\\.[a-z]+$/", "", filename, mm);
-	mod->path = asn_abspath(pbt("%s/%s", mod->dir, filename), mm);
-	mod->mm = mm;
+	char *ext;
+
+	*skipflag = 0;
+
+	mod = mmatic_zalloc(sizeof *mod, dir);
+	mod->dir  = dir;
+	mod->name = asn_replace("/\\.[a-z]+$/", "", filename, mod);
+	mod->prv  = ut_new_thash(NULL, mod);
+	mod->path = mmatic_printf(mod, "%s/%s", dir->path, filename);
 
 	if (asn_isfile(mod->path) < 0)
 		goto skip;
 
-	char *ext = asn_replace("/.*(\\.[a-z]+)$/", "\\1", filename, mmtmp);
+	ext = asn_replace("/.*(\\.[a-z]+)$/", "\\1", filename, mod);
 	if (streq(ext, ".sh")) {
 		if (!asn_isexecutable(mod->path)) {
 			dbg(1, "%s: exec bit not set - skipping\n", mod->path);
@@ -208,22 +106,22 @@ static struct mod *load_module(const char *dir, const char *filename)
 		void *so = dlopen(mod->path, RTLD_LAZY | RTLD_GLOBAL);
 		if (!so) {
 			dbg(0, "%s failed: %s\n", mod->name, dlerror());
-			exit(1);
+			return NULL;
 		}
 
-		mod->api = dlsym(so, pbt("%s_api", mod->name));
+		mod->api = dlsym(so, mmatic_printf(mod, "%s_api", mod->name));
 		if (!mod->api) {
 			dbg(1, "%s: warning - no API found\n", mod->name);
 			mod->api = &generic_api;
 		}
 
-		mod->fw = dlsym(so, pbt("%s_fw", mod->name));
+		mod->fw = dlsym(so, mmatic_printf(mod, "%s_fw", mod->name));
 	} else if (streq(ext, ".js")) {
 		dbg(1, "%s: JS not supported yet\n", mod->path);
 		goto skip;
 	} else goto skip;
 
-	if (mod->api->magic != RPCD_MAGIC) {
+	if (mod->api->tag != RPCD_TAG) {
 		dbg(0, "%s failed: invalid API magic\n", mod->path);
 		goto skip;
 	}
@@ -243,116 +141,192 @@ static struct mod *load_module(const char *dir, const char *filename)
 	return mod;
 
 skip:
-	free_mod((void *) mod);
+	mmatic_freeptr(mod);
+	*skipflag = 1;
 	return NULL;
 }
 
-static void load_config(const char *dir, const char *filename)
+/** Load given directory
+ * @retval NULL   failed */
+static struct dir *load_dir(struct svc *svc, const char *dirpath, ut *dircfg)
 {
-	const char *filepath;
-	FILE *fp;
-	char buf[BUFSIZ], *str;
-	ut *ut, *val;
-	xstr *xs;
-	json *js;
-	char *key;
+	struct dir *dir;
 	struct mod *mod;
-	thash *th;
-
-	filepath = asn_abspath(pbt("%s/%s", dir, filename), mmtmp);
-
-	/* read file contents, ignoring empty lines and comments */
-	fp = fopen(filepath, "r");
-
-	if (!fp) {
-		dbg(0, "%s: fopen() failed: %s\n", filepath, strerror(errno));
-		exit(1);
-	}
-
-	xs = xstr_create("{", mmtmp);
-	while (fgets(buf, sizeof(buf), fp)) {
-		str = asn_trim(buf);
-		if (!str[0] || str[0] == '#') continue;
-		xstr_append(xs, str);
-	}
-	xstr_append_char(xs, '}');
-
-	fclose(fp);
-
-	/* parse JSON */
-	js = json_create(mm);
-	json_setopt(js, JSON_LOOSE, 1);
-
-	ut = json_parse(js, xstr_string(xs));
-
-	if (!ut_ok(ut)) {
-		dbg(0, "%s: parsing failed: %s\n", filepath, ut_err(ut));
-		exit(1);
-	}
-
-	asnsert(ut_type(ut) == T_HASH);
-
-	/* find referenced modules and connect config to them */
-	th = ut_thash(ut);
-
-	THASH_ITER_LOOP(th, key, val) {
-		if (streq(key, "common"))
-			mod = thash_get(R.commons, dir);
-		else
-			mod = thash_get(R.modules, key);
-
-		if (mod)
-			mod->cfg = val;
-		else
-			dbg(1, "%s: could not find matching module for key '%s'\n", filepath, key);
-	}
-}
-
-/** Scan given directory for configuration files and modules and load them */
-static void scan_dir(const char *dir)
-{
+	const char *modname;
+	ut *modcfg;
+	thash *t;
 	char *filename;
-	struct mod *mod, *cmod = NULL;
+	tlist *ls;
+	bool skip;
 
-	dbg(5, "scanning %s\n", dir);
-	tlist *ls = asn_ls(dir, mmtmp);
+	dir = mmatic_zalloc(sizeof *dir, svc);
+	dir->svc = svc;
+	dir->name = asn_basename(dirpath);
+	dir->cfg = uth_get(dircfg, "*"); /* TODO: merge svc.* */
+	dir->prv = ut_new_thash(NULL, dir);
+	dir->path = dirpath; /* TODO: abspath */
+	dir->modules = thash_create_strkey(NULL, dir);
+
+	/* scan directory */
+	ls = asn_ls(dir->path, dir);
 
 	/* load the common module first */
 	TLIST_ITER_LOOP(ls, filename) {
-		if (asn_match(RPCD_COMMON_REGEX, filename)) {
+		if (strncmp(filename, "common.", 7) == 0) {
 			tlist_remove(ls);
 
-			mod = load_module(dir, filename);
+			mod = load_module(dir, filename, &skip);
 			if (mod) {
-				cmod = mod;
-				mod->cmod = mod;
-				thash_set(R.commons, mod->dir, mod);
+				thash_set(dir->modules, "common", mod);
+				dir->common = mod;
 				break; /* first match wins */
+			} else if (skip == false) {
+				return NULL;
 			}
 		}
 	}
 
 	/* load the rest */
 	TLIST_ITER_LOOP(ls, filename) {
-		mod = load_module(dir, filename);
-
+		mod = load_module(dir, filename, &skip);
 		if (mod) {
-			mod->cmod = cmod;
-			thash_set(R.modules, mod->name, mod);
+			thash_set(dir->modules, mod->name, mod);
+		} else if (skip == false) {
+			return NULL;
 		}
 	}
 
-	/* parse config files */
-	TLIST_ITER_LOOP(ls, filename) {
-		if (streq(filename, RPCD_CONFIG_FILE))
-			load_config(dir, filename);
+	/* try to bind configs */
+	t = ut_thash(dircfg);
+	THASH_ITER_LOOP(t, modname, modcfg) {
+		mod = thash_get(dir->modules, modname);
+
+		if (mod)
+			mod->cfg = modcfg; /* TODO: merge svc.dir.* */
+		else
+			dbg(1, "%s.%s: could not find matching module for key '%s'\n",
+				svc->name, dir->name, modname);
 	}
+
+	return dir;
 }
 
-/******************************************************/
+/** Load given service
+ * @retval NULL  failed */
+static struct svc *load_svc(struct rpcd *rpcd, const char *svcname, ut *svccfg)
+{
+	struct svc *svc;
+	struct dir *dir;
+	const char *dirpath;
+	ut *dircfg;
+	thash *t;
+
+	svc = mmatic_zalloc(sizeof *svc, rpcd);
+	svc->rpcd = rpcd;
+	svc->name = svcname;
+	svc->cfg = uth_get(svccfg, "*"); /* TODO: merge * */
+	svc->prv = ut_new_thash(NULL, svc);
+	svc->dirs = thash_create_strkey(NULL, svc);
+
+	t = ut_thash(svccfg);
+	THASH_ITER_LOOP(t, dirpath, dircfg) {
+		dir = load_dir(svc, dirpath, dircfg);
+
+		if (dir) {
+			thash_set(svc->dirs, asn_basename(dirpath), dir);
+
+			if (!svc->defdir)
+				svc->defdir = dir;
+		} else return NULL;
+	}
+
+	return svc;
+}
+
+/***************************************************************************************************/
+/***************************************************************************************************/
+/***************************************************************************************************/
+
+struct rpcd *rpcd_init(const char *config_file)
+{
+	struct rpcd *rpcd;
+	ut *rootcfg, *svccfg;
+	const char *svcname, *dirname, *modname;
+	struct svc *svc;
+	struct dir *dir;
+	struct mod *mod;
+	thash *t;
+
+	rpcd = mmatic_zalloc(sizeof *rpcd, mmatic_create());
+
+	/* parse config file */
+	rootcfg = read_config(rpcd, config_file);
+
+	if (rootcfg)
+		rpcd->cfg = uth_get(rootcfg, "*");
+	else
+		goto err;
+
+	/* read services */
+	rpcd->svcs = thash_create_strkey(NULL, rpcd);
+
+	t = ut_thash(rootcfg);
+	THASH_ITER_LOOP(t, svcname, svccfg) {
+		svc = load_svc(rpcd, svcname, svccfg);
+
+		if (svc) {
+			thash_set(rpcd->svcs, svcname, svc);
+
+			if (!rpcd->defsvc)
+				rpcd->defsvc = svc;
+		} else goto err;
+	}
+
+	/* run init() in each module */
+	THASH_ITER_LOOP(rpcd->svcs, svcname, svc) {
+		THASH_ITER_LOOP(svc->dirs, dirname, dir) {
+			THASH_ITER_LOOP(dir->modules, modname, mod) {
+				if (!mod->api->init(mod)) {
+					dbg(0, "%s: module initialization failed\n", mod->path);
+					goto err;
+				}
+			}
+		}
+	}
+
+	return rpcd;
+err:
+	mmatic_free(rpcd);
+	return NULL;
+}
+
+void rpcd_deinit(struct rpcd *rpcd)
+{
+	mmatic_free(rpcd);
+}
+
+bool rpcd_dir_load(struct rpcd *rpcd, const char *path)
+{
+	/* TODO */
+	return true;
+}
+
+ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
+{
+	return ut_new_char("aaa kotki dwa", mmatic_create());
+}
+
+void rpcd_reqfree(ut *reply)
+{
+	mmatic_free(reply);
+}
+
+/***************************************************************************************************/
+/***************************************************************************************************/
+/***************************************************************************************************/
 
 /** Generate an error JSON-RPC response based on error code */
-bool error(struct req *req, int code, const char *msg, const char *data,
+bool rpcd_error(struct req *req, int code, const char *msg, const char *data,
 	const char *cfile, unsigned int cline)
 {
 	enum json_errcode jcode = code;
@@ -375,141 +349,10 @@ bool error(struct req *req, int code, const char *msg, const char *data,
 	}
 
 	if (!data)
-		data = mmatic_printf(req->mm, "%s#%d", cfile, cline);
+		data = mmatic_printf(req, "%s#%d", cfile, cline);
 
-	req->reply = ut_new_err(code, msg, data, req->mm);
+	req->reply = ut_new_err(code, msg, data, req);
 	return false;
-}
-
-static void handle(struct req *req)
-{
-	struct mod *common;
-
-	/* find handler */
-	if (!req->method ||
-		!(req->mod = thash_get(R.modules, req->method))) {
-		errcode(JSON_RPC_NOT_FOUND);
-		goto reply;
-	}
-
-	/* find common module */
-	common = thash_get(R.commons, req->mod->dir);
-
-	/* check the common firewall */
-	if ((common && common->fw && !generic_fw(req, common->fw)) ||
-		(req->mod->fw && !generic_fw(req, req->mod->fw))) {
-		if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
-		goto reply;
-	}
-
-	/* for simpler handle() implementation */
-	req->reply = ut_new_thash(NULL, req->mm);
-
-	/* handle - run common/handle, then mod/handle */
-	if ((common && !common->api->handle(req, req->mm)) ||
-		(!req->mod->api->handle(req, req->mm))) {
-		if (ut_ok(req->reply)) errcode(JSON_RPC_ERROR);
-		goto reply;
-	}
-
-reply:
-	if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
-}
-
-struct req *request(const char *method, ut *params)
-{
-	/* TODO: merge with main */
-	struct req *req;
-
-	req = mmatic_zalloc(sizeof(*req), mmtmp);
-	req->mm = mmtmp;
-	req->env = thash_clone(R.env, mmtmp);
-
-	req->method = method;
-	req->params = params;
-
-	handle(req);
-
-	return req;
-}
-
-int main(int argc, char *argv[])
-{
-	struct req *req;
-	json *js;
-
-	/* init some vars */
-	mm = mmatic_create();
-	mmtmp = mmatic_create();
-	R.modules  = MMTHASH_CREATE_STR(free_mod);
-	R.commons  = MMTHASH_CREATE_STR(free_mod);
-	R.env      = MMTHASH_CREATE_STR(NULL); /* free fn not needed */
-
-	/* setup signal handling */
-	signal(SIGPIPE, SIG_IGN);
-	signal(SIGUSR1, show_memory);
-	signal(SIGTERM, finish);
-	signal(SIGINT,  finish);
-
-	/**********************/
-
-	/* parse arguments and load modules */
-	switch (init(argc, argv)) {
-		case 0: return 1;
-		case 2: return 0;
-	}
-
-	/* initialize common modules */
-	init_modules(R.commons);
-	init_modules(R.modules);
-
-	if (R.daemonize)
-		asn_daemonize(R.name, R.pidfile);
-
-	int read_status;
-
-	do {
-		/* flush temp mem */
-		mmatic_free(mmtmp);
-		mmtmp = mmatic_create();
-
-		/* prepare request struct */
-		req = mmatic_zalloc(sizeof(*req), mmtmp);
-		req->mm = mmtmp;
-		req->env = thash_clone(R.env, mmtmp);
-
-		/* prepare parser */
-		js = json_create(req->mm);
-
-		/* read the request */
-		read_status = readreq(req);
-		if (read_status == 0) /* invalid */
-			goto reply;
-
-		/* dump it for debugging purposes */
-		if (read_status == 1 && req->params) /* all OK */
-			dbg(5, "%s\n", ut_char(req->params));
-
-		/* authenticate */
-		if (R.htpasswd) {
-			req->user = auth(req);
-
-			if (!req->user) {
-				errcode(JSON_RPC_ACCESS_DENIED);
-				goto reply;
-			}
-		}
-
-		/* mostly for HTTP file server */
-		if (read_status == 2)
-			goto reply;
-
-		handle(req);
-reply:
-		writerep(req);
-	} while (req->last == false);
-
-	return 1;
 }
 
 /* for Vim autocompletion:

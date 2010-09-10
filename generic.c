@@ -20,7 +20,7 @@ bool generic_deinit(struct mod *mod)
 	return true;
 }
 
-bool generic_handle(struct req *req, mmatic *mm)
+bool generic_handle(struct req *req)
 {
 	return true;
 }
@@ -80,7 +80,7 @@ bool generic_fw(struct req *req, struct fw *fw)
 }
 
 struct api generic_api = {
-	.magic  = RPCD_MAGIC,
+	.tag    = RPCD_TAG,
 	.init   = generic_init,
 	.deinit = generic_deinit,
 	.handle = generic_handle,

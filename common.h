@@ -9,6 +9,7 @@
 
 #include "standard.h"
 #include "rpcd.h"
+#include "rpcd_module.h"
 #include "read.h"
 #include "write.h"
 #include "sh.h"

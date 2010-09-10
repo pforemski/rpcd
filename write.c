@@ -115,6 +115,8 @@ bool writehttp_get(struct req *req)
 		/* send file */
 		while ((r = read(fd, buf, sizeof buf)) > 0)
 			write(1, buf, r);
+
+		close(fd);
 	}
 
 	return true;
@@ -133,19 +135,6 @@ void writehttp(struct req *req)
 	strftime(date, sizeof date, RFC_DATETIME, gmtime(&now));
 
 	if (!ut_ok(req->reply)) switch (ut_errcode(req->reply)) {
-		case JSON_RPC_PARSE_ERROR:
-		case JSON_RPC_INVALID_INPUT:
-		case JSON_RPC_INVALID_REQUEST:
-		case JSON_RPC_INVALID_PARAMS:
-			code = 400;
-			msg = "Bad Request";
-			break;
-		
-		case JSON_RPC_NOT_FOUND:
-			code = 404;
-			msg = "Not Found";
-			break;
-
 		case JSON_RPC_ACCESS_DENIED:
 			if (R.htpasswd)
 				header = mmatic_printf(req->mm, "WWW-Authenticate: Basic realm=\"%s\"\n", R.name);
@@ -173,13 +162,15 @@ void writehttp(struct req *req)
 			goto printtxt;
 
 		case JSON_RPC_HTTP_GET:
-			if (writehttp_get(req))
+			if (writehttp_get(req)) {
 				return;
-			/* else fall-through */
+			} else {
+				code = 500;
+				msg = "Internal Server Error";
+			}
+			break;
 
 		default:
-			code = 500;
-			msg = "Internal Server Error";
 			break;
 	}
 

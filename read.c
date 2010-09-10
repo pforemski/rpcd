@@ -6,6 +6,9 @@
 
 #include "common.h"
 
+/** Common part of request parser, usually after JSON representation is made available in req->params
+ * @param req     the request
+ * @param leave   leave the req->params */
 static int common(struct req *req, bool leave)
 {
 	ut *ut;
@@ -32,6 +35,11 @@ static int common(struct req *req, bool leave)
 			req->params = ut;
 		else
 			req->params = uth_set_thash(req->params, "params", NULL); /* create empty hash */
+
+		if (ut_is_tlist(req->params) && thash_get(req->hh, "X-Qooxdoo-Response-Type")) {
+			tlist *tl = ut_tlist(req->params);
+			req->params = tlist_shift(tl);
+		}
 	}
 
 	return true;
@@ -194,7 +202,7 @@ int readhttp(struct req *req)
 
 	ac = thash_get(req->hh, "Accept");
 	if (!ac) return errmsg("Accept needed");
-	if (!asn_match(":application/json:", ac))
+	if (!strstr(ac, "application/json") && !strstr(ac, "*/*"))
 		return errmsg("Unsupported Accept");
 
 	/* read the query */
