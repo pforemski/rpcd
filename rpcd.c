@@ -73,8 +73,9 @@ static ut *read_config(struct rpcd *rpcd, const char *config_file)
  *
  * @param dir       directory containing module file
  * @param filename  name of module file (relative to dir)
+ * @param skipflag  if true after return, just ignore this file
  * @return          pointer to struct mod
- * @retval NULL     loading failed */
+ * @retval NULL     loading failed or module is to be skipped (see skipflag) */
 static struct mod *load_module(struct dir *dir, const char *filename, bool *skipflag)
 {
 	struct mod *mod;
@@ -313,7 +314,47 @@ bool rpcd_dir_load(struct rpcd *rpcd, const char *path)
 
 ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
 {
-	return ut_new_char("aaa kotki dwa", mmatic_create());
+	struct req *req;
+	struct svc *svc;
+	struct dir *dir;
+	struct mod *mod, *common;
+
+	/* TODO: parse svc.dir.method? */
+	svc = rpcd->defsvc;
+	dir = svc->defdir;
+	mod = thash_get(dir->modules, method);
+	common = dir->common;
+
+	/* TODO */
+	req = mmatic_zalloc(sizeof *req, mmatic_create());
+	req->mod = mod;
+	req->prv = ut_new_thash(NULL, req);
+	req->params = params;
+	req->reply = ut_new_thash(NULL, req);
+
+	if (!mod) {
+		errcode(JSON_RPC_NOT_FOUND);
+		goto reply;
+	}
+
+	/* TODO: common module, prepend? */
+
+	/* check the common firewall */
+	if ((common && common->fw && !generic_fw(req, common->fw)) ||
+		(mod->fw && !generic_fw(req, mod->fw))) {
+		if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
+		goto reply;
+	}
+
+	if ((common && !common->api->handle(req)) || !(mod->api->handle(req))) {
+		if (ut_ok(req->reply)) errcode(JSON_RPC_ERROR);
+		goto reply;
+	}
+
+reply:
+	if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
+
+	return req->reply;
 }
 
 void rpcd_reqfree(ut *reply)

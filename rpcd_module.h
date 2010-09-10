@@ -57,7 +57,6 @@ struct mod {
 
 struct req {
 	struct mod *mod;                   /** way up */
-	const char *name;                  /** called procedure */
 	ut *prv;                           /** request internal data hash */
 
 	const char *id;                    /** optional ID, if present */

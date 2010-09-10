@@ -1,5 +1,5 @@
 #include <time.h>
-#include "../rpcd.h"
+#include "../rpcd_module.h"
 
 static bool init(struct mod *mod)
 {
@@ -7,7 +7,7 @@ static bool init(struct mod *mod)
 	return true;
 }
 
-static bool handle(struct req *req, mmatic *mm)
+static bool handle(struct req *req)
 {
 	time_t t;
 	struct tm *tmp;
@@ -17,13 +17,14 @@ static bool handle(struct req *req, mmatic *mm)
 	tmp = localtime(&t);
 	strftime(buf, sizeof(buf), "%F %T", tmp);
 
-	uth_set_char(req->reply, "date", mmstrdup(buf));
+	uth_set_char(req->reply, "date", mmatic_strdup(buf, req));
+	uth_set_char(req->reply, "config variable", uth_char(req->mod->cfg, "variable"));
 
 	return true;
 }
 
 struct api date2_api = {
-	.magic  = RPCD_MAGIC,
+	.tag  = RPCD_TAG,
 	.init   = init,
 	.handle = handle
 };
