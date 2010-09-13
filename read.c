@@ -48,7 +48,7 @@ static int common(struct req *req, bool leave)
 static int readjson_len(struct req *req, int len)
 {
 	char buf[BUFSIZ];
-	xstr *xs = xstr_create("", req->mm);
+	xstr *xs = xstr_create("", req);
 	json *js;
 
 	if (len < 0) {
@@ -77,7 +77,7 @@ static int readjson_len(struct req *req, int len)
 	/* eof? */
 	if (xstr_length(xs) == 0) exit(0);
 
-	js = json_create(req->mm);
+	js = json_create(req);
 	req->params = json_parse(js, xstr_string(xs));
 
 	return common(req, false);
@@ -91,7 +91,7 @@ int readjson(struct req *req)
 int read822(struct req *req)
 {
 	char buf[BUFSIZ];
-	xstr *input = xstr_create("", req->mm);
+	xstr *input = xstr_create("", req);
 
 	while (fgets(buf, sizeof(buf), stdin)) {
 		if (!buf[0] || buf[0] == '\n') break;
@@ -104,8 +104,8 @@ int read822(struct req *req)
 	dbg(8, "parsing %s\n", xstr_string(input));
 
 	req->params = ut_new_thash(
-		rfc822_parse(xstr_string(input), req->mm),
-		req->mm);
+		rfc822_parse(xstr_string(input), req),
+		req);
 
 	return common(req, true);
 }
@@ -115,7 +115,7 @@ int readhttp(struct req *req)
 	enum http_type ht;
 	char first[256], buf[BUFSIZ], *ct, *cl, *ac, *uri, *auth;
 	int len;
-	xstr *xs = xstr_create("", req->mm);
+	xstr *xs = xstr_create("", req);
 
 	/* read query */
 	if (!fgets(first, sizeof(first), stdin) || first[0] == '\n')
@@ -127,7 +127,7 @@ int readhttp(struct req *req)
 	} else if (strncmp(first, "OPTIONS ", 8) == 0) {
 		ht = OPTIONS;
 		uri = first + 8;
-	} else if (strncmp(first, "GET ", 4) == 0 && R.htdocs) { /* @1 */
+	} else if (strncmp(first, "GET ", 4) == 0 /* FIXME && R.htdocs */) { /* @1 */
 		ht = GET;
 		uri = first + 4;
 	} else {
@@ -141,12 +141,12 @@ int readhttp(struct req *req)
 		xstr_append(xs, buf);
 	}
 
-	req->hh = rfc822_parse(xstr_string(xs), req->mm);
+	req->hh = rfc822_parse(xstr_string(xs), req);
 
 	/* fetch authentication information ASAP */
 	auth = thash_get(req->hh, "Authorization");
 	if (auth && strncmp(auth, "Basic ", 6) == 0) {
-		xstr *ad = asn_b64_dec(auth+6, req->mm);
+		xstr *ad = asn_b64_dec(auth+6, req);
 		char *pass = strchr(xstr_string(ad), ':');
 
 		if (pass) {
@@ -180,7 +180,7 @@ int readhttp(struct req *req)
 			return 2;
 		}
 
-		req->uripath = mmatic_printf(req->mm, "%s%s", R.htdocs, uri);
+		req->uripath = mmatic_printf(req, "%s%s", /* FIXME R.htdocs */ "/var/www", uri);
 		if (asn_isfile(req->uripath) > 0) {
 			dbg(4, "GET '%s'\n", req->uripath);
 			errcode(JSON_RPC_HTTP_GET);

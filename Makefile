@@ -2,18 +2,17 @@
 CFLAGS =
 LDFLAGS = -lasn -ldl -lpthread
 
-#OBJECTS=rpcd.o read.o write.o sh.o auth.o generic.o
-#TARGETS=rpcd
+TARGETS=librpcd.so rpcd
 OBJECTS=rpcd.o generic.o sh.o
-TARGETS=librpcd.so
+OBJECTS2=rpcd.o daemon.o read.o write.o sh.o auth.o generic.o
 
 include rules.mk
 
 default: all
 all: $(TARGETS)
 
-rpcd: $(OBJECTS)
-	$(CC) $(LDFLAGS) $(OBJECTS) -o rpcd
+rpcd: $(OBJECTS2)
+	$(CC) $(LDFLAGS) $(OBJECTS2) -o rpcd
 
 librpcd.so: $(OBJECTS)
 	$(CC) $(LDFLAGS) $(OBJECTS) -shared -o librpcd.so

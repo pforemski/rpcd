@@ -14,8 +14,8 @@
 
 static char *common(struct req *req)
 {
-	json *js = json_create(req->mm);
-	ut *rep = ut_new_thash(NULL, req->mm);
+	json *js = json_create(req);
+	ut *rep = ut_new_thash(NULL, req);
 
 	uth_set_char(rep, "jsonrpc", "2.0");
 	if (req->id)
@@ -136,16 +136,18 @@ void writehttp(struct req *req)
 
 	if (!ut_ok(req->reply)) switch (ut_errcode(req->reply)) {
 		case JSON_RPC_ACCESS_DENIED:
+#if 0
 			if (R.htpasswd)
-				header = mmatic_printf(req->mm, "WWW-Authenticate: Basic realm=\"%s\"\n", R.name);
+				header = mmatic_printf(req, "WWW-Authenticate: Basic realm=\"%s\"\n", /* FIXME R.name */ "rpcd");
 
 			if (R.htpasswd && !req->claim_user) {
 				code = 401;
 				msg = "Authorization Required";
 			} else {
+#endif
 				code = 403;
 				msg = "Forbidden";
-			}
+//			}
 			break;
 
 		case JSON_RPC_HTTP_NOT_FOUND:

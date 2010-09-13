@@ -59,6 +59,7 @@ struct req {
 	struct mod *mod;                   /** way up */
 	ut *prv;                           /** request internal data hash */
 
+	const char *method;                /** called method */
 	const char *id;                    /** optional ID, if present */
 	ut *params;                        /** the "params" argument */
 	ut *reply;                         /** reply, may be NULL */
@@ -129,16 +130,5 @@ bool rpcd_error(struct req *req, int code, const char *msg, const char *data,
  * @param ctx       textual context - eg. function name that failed (required) */
 #define errsys(ctx) err(JSON_RPC_ERROR, strerror(errno), \
                         mmatic_printf(req, "%s: errno %d in %s#%u", (ctx), errno, __FILE__, __LINE__))
-
-/** Make an internal rpcd sub-request */
-struct req *request(const char *method, ut *params);
-
-/** Wrapper to create a string in persistent memory
- * @see mmatic_printf() in libasn */
-#define pb(...) (mmatic_printf(mm, __VA_ARGS__))
-
-/** Wrapper to create a string in temporary memory
- * @see mmatic_printf() in libasn */
-#define pbt(...) (mmatic_printf(mmtmp, __VA_ARGS__))
 
 #endif

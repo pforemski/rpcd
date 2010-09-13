@@ -315,36 +315,73 @@ bool rpcd_dir_load(struct rpcd *rpcd, const char *path)
 ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
 {
 	struct req *req;
-	struct svc *svc;
-	struct dir *dir;
+	struct svc *svc = NULL;
+	struct dir *dir = NULL;
+	char *query, *dotl, *dotr;
+	char *svcname, *dirname, *metname;
+
+	req = mmatic_zalloc(sizeof *req, mmatic_create());
+	req->prv = ut_new_thash(NULL, req);
+	req->reply = ut_new_thash(NULL, req);
+	req->params = params;
+
+	/* parse method = svc.dir.method */
+	query = mmatic_strdup(method, req);
+	dotl = strchr(query, '.');
+	dotr = strrchr(query, '.');
+
+	if (dotl) {
+		*dotl = '\0';
+
+		if (dotl < dotr) {
+			*dotr = '\0';
+			svcname = query;
+			dirname = dotl + 1;
+			metname = dotr + 1;
+		} else { // dotl == dotr
+			svcname = NULL;
+			dirname = query;
+			metname = dotl + 1;
+		}
+	} else {
+		metname = query;
+	}
+
+	if (svcname)
+		svc = thash_get(rpcd->svcs, svcname);
+	if (!svc)
+		svc = rpcd->defsvc;
+
+	if (dirname)
+		dir = thash_get(svc->dirs, dirname);
+	if (!dir)
+		dir = svc->defdir;
+
+	req->method = metname;
+	req->mod = thash_get(dir->modules, metname);
+
+	return rpcd_handle(req);
+}
+
+ut *rpcd_handle(struct req *req)
+{
 	struct mod *mod, *common;
 
-	/* TODO: parse svc.dir.method? */
-	svc = rpcd->defsvc;
-	dir = svc->defdir;
-	mod = thash_get(dir->modules, method);
-	common = dir->common;
-
-	/* TODO */
-	req = mmatic_zalloc(sizeof *req, mmatic_create());
-	req->mod = mod;
-	req->prv = ut_new_thash(NULL, req);
-	req->params = params;
-	req->reply = ut_new_thash(NULL, req);
-
-	if (!mod) {
+	if (!req->mod) {
 		errcode(JSON_RPC_NOT_FOUND);
-		goto reply;
+		return req->reply;
 	}
 
-	/* TODO: common module, prepend? */
+	mod = req->mod;
+	common = mod->dir->common;
 
-	/* check the common firewall */
-	if ((common && common->fw && !generic_fw(req, common->fw)) ||
-		(mod->fw && !generic_fw(req, mod->fw))) {
-		if (!req->reply) errcode(JSON_RPC_INVALID_INPUT);
+	/* TODO: prepend */
+
+	if (common && common->fw && !generic_fw(req, common->fw))
 		goto reply;
-	}
+
+	if (mod->fw && !generic_fw(req, mod->fw))
+		goto reply;
 
 	if ((common && !common->api->handle(req)) || !(mod->api->handle(req))) {
 		if (ut_ok(req->reply)) errcode(JSON_RPC_ERROR);
@@ -353,7 +390,6 @@ ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
 
 reply:
 	if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
-
 	return req->reply;
 }
 

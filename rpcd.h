@@ -60,4 +60,8 @@ ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params);
  * @param reply        object returned by rpcd_request() */
 void rpcd_reqfree(ut *reply);
 
+/** Handle (execute) given request
+ * @param req          properly initialized struct req object */
+ut *rpcd_handle(struct req *req);
+
 #endif
