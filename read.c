@@ -9,10 +9,11 @@
 /** Common part of request parser, usually after JSON representation is made available in req->params
  * @param req     the request
  * @param leave   leave the req->params */
-static int common(struct req *req, bool leave)
+static bool common(struct req *req, bool leave)
 {
 	ut *ut;
 
+	/* guarantee that req->params is ok */
 	if (!ut_ok(req->params)) {
 		req->reply = req->params;
 		req->params = NULL;
@@ -22,6 +23,9 @@ static int common(struct req *req, bool leave)
 	}
 
 	/* JSON-RPC argument check */
+	if ((ut = uth_get(req->params, "service"))) /* used by Qooxdoo */
+		req->service = ut_char(ut);
+
 	if ((ut = uth_get(req->params, "method")))
 		req->method = ut_char(ut);
 
@@ -36,7 +40,7 @@ static int common(struct req *req, bool leave)
 		else
 			req->params = uth_set_thash(req->params, "params", NULL); /* create empty hash */
 
-		if (ut_is_tlist(req->params) && thash_get(req->hh, "X-Qooxdoo-Response-Type")) {
+		if (ut_is_tlist(req->params) && thash_get(req->http.headers, "X-Qooxdoo-Response-Type")) {
 			tlist *tl = ut_tlist(req->params);
 			req->params = tlist_shift(tl);
 		}
@@ -45,7 +49,7 @@ static int common(struct req *req, bool leave)
 	return true;
 }
 
-static int readjson_len(struct req *req, int len)
+static bool readjson_len(struct req *req, int len)
 {
 	char buf[BUFSIZ];
 	xstr *xs = xstr_create("", req);
@@ -83,12 +87,12 @@ static int readjson_len(struct req *req, int len)
 	return common(req, false);
 }
 
-int readjson(struct req *req)
+bool readjson(struct req *req)
 {
 	return readjson_len(req, -1);
 }
 
-int read822(struct req *req)
+bool read822(struct req *req)
 {
 	char buf[BUFSIZ];
 	xstr *input = xstr_create("", req);
@@ -110,7 +114,7 @@ int read822(struct req *req)
 	return common(req, true);
 }
 
-int readhttp(struct req *req)
+bool readhttp(struct req *req)
 {
 	enum http_type ht;
 	char first[256], buf[BUFSIZ], *ct, *cl, *ac, *uri, *auth;
@@ -127,7 +131,7 @@ int readhttp(struct req *req)
 	} else if (strncmp(first, "OPTIONS ", 8) == 0) {
 		ht = OPTIONS;
 		uri = first + 8;
-	} else if (strncmp(first, "GET ", 4) == 0 /* FIXME && R.htdocs */) { /* @1 */
+	} else if (strncmp(first, "GET ", 4) == 0 && O.http.htdocs) { /* @1 */
 		ht = GET;
 		uri = first + 4;
 	} else {
@@ -141,31 +145,32 @@ int readhttp(struct req *req)
 		xstr_append(xs, buf);
 	}
 
-	req->hh = rfc822_parse(xstr_string(xs), req);
+	req->http.headers = rfc822_parse(xstr_string(xs), req);
 
 	/* fetch authentication information ASAP */
-	auth = thash_get(req->hh, "Authorization");
+	auth = thash_get(req->http.headers, "Authorization");
 	if (auth && strncmp(auth, "Basic ", 6) == 0) {
 		xstr *ad = asn_b64_dec(auth+6, req);
 		char *pass = strchr(xstr_string(ad), ':');
 
 		if (pass) {
 			*pass++ = '\0';
-			req->claim_user = xstr_string(ad);
-			req->claim_pass = pass;
+			req->http.user = xstr_string(ad);
+			req->http.pass = pass;
 		}
 	}
 
-	const char *cc = thash_get(req->hh, "Connection");
+	const char *cc = thash_get(req->http.headers, "Connection");
 	if (cc && (streq(cc, "close") || streq(cc, "Close")))
 		req->last = true;
 
-	if (ht == OPTIONS) {
+	if (ht == OPTIONS)
 		return errcode(JSON_RPC_HTTP_OPTIONS);
-	}
 
 	/* handle static query, note that htdocs!=NULL checked @1 */
 	if (ht == GET) {
+		req->http.needauth = true;
+
 		char *space = strchr(uri, ' ');
 		if (space) *space = '\0';
 
@@ -176,37 +181,34 @@ int readhttp(struct req *req)
 			uri = "/index.html";
 		} else if (strstr(uri, "..")) {
 			dbg(4, "invalid uri: '%s'\n", uri);
-			errcode(JSON_RPC_HTTP_NOT_FOUND);
-			return 2;
+			return errcode(JSON_RPC_HTTP_NOT_FOUND);
 		}
 
-		req->uripath = mmatic_printf(req, "%s%s", /* FIXME R.htdocs */ "/var/www", uri);
-		if (asn_isfile(req->uripath) > 0) {
-			dbg(4, "GET '%s'\n", req->uripath);
-			errcode(JSON_RPC_HTTP_GET);
-		} else {
-			req->uripath = 0;
-			dbg(4, "not found: '%s'\n", uri);
-			errcode(JSON_RPC_HTTP_NOT_FOUND);
+		req->http.uripath = mmatic_printf(req, "%s%s", O.http.htdocs, uri);
+		if (asn_isfile(req->http.uripath) > 0) {
+			dbg(4, "GET '%s'\n", req->http.uripath);
+			return errcode(JSON_RPC_HTTP_GET);
 		}
 
-		return 2;
+		dbg(4, "not found: '%s'\n", uri);
+		req->http.uripath = NULL;
+		return errcode(JSON_RPC_HTTP_NOT_FOUND);
 	}
 
 	/* = POST - ie. normal RPC call = */
 
-	ct = thash_get(req->hh, "Content-Type");
+	ct = thash_get(req->http.headers, "Content-Type");
 	if (!ct) return errmsg("Content-Type needed");
 	if (strncmp(ct, "application/json", 16) != 0)
 		return errmsg("Unsupported Content-Type");
 
-	ac = thash_get(req->hh, "Accept");
+	ac = thash_get(req->http.headers, "Accept");
 	if (!ac) return errmsg("Accept needed");
 	if (!strstr(ac, "application/json") && !strstr(ac, "*/*"))
 		return errmsg("Unsupported Accept");
 
 	/* read the query */
-	cl = thash_get(req->hh, "Content-Length");
+	cl = thash_get(req->http.headers, "Content-Length");
 	if (!cl) return errmsg("Content-Length needed");
 
 	len = atoi(cl);

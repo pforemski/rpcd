@@ -7,6 +7,6 @@
 #ifndef _AUTH_H_
 #define _AUTH_H_
 
-const char *auth(struct req *req);
+bool auth_http(struct req *req);
 
 #endif

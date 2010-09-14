@@ -15,7 +15,7 @@
 /***************************************************************************************************/
 
 #define RPCD_VER "0.2"
-#define RPCD_DEFAULT_CONFIGFILE "/etc/rpcd.conf"
+#define RPCD_DEFAULT_CONFIGFILE "rpcd.conf"
 #define RPCD_DEFAULT_PIDFILE "/var/run/rpcd.pid"
 
 /***************************************************************************************************/
@@ -31,14 +31,14 @@ struct fw;                             /** Represents one rule in module "parame
 /***************************************************************************************************/
 
 /** Initialize rpcd
- * @param config_file  rpcd configuration file:
- *                     if its NULL, RPCD_DEFAULT_CONFIGFILE is used as default
- *                     if the string is empty, rpcd is started with no configuration
- *                     if the string starts with "/" or "./" its interpreted as file path
- *                     otherwise passed string is interpreted as config for service named "rpcd"
- * @retval NULL        something failed - see debug messages for info
- * @return             rpcd handle, which is ready */
-struct rpcd *rpcd_init(const char *config_file);
+ * @param config_file   rpcd configuration file:
+ *                      if its NULL, RPCD_DEFAULT_CONFIGFILE is used as default
+ *                      otherwise its interpreted as file path (unless config_inline is set)
+ * @param config_inline if true, interpret config_file directly as contents of configuration
+ *                      describing service named "rpcd"
+ * @retval NULL         something failed - see debug messages for info
+ * @return              rpcd handle, which is ready */
+struct rpcd *rpcd_init(const char *config_file, bool config_inline);
 
 /** Deinitialize rpcd, freeing memory
  * @param rpcd         rpcd handle
@@ -62,6 +62,6 @@ void rpcd_reqfree(ut *reply);
 
 /** Handle (execute) given request
  * @param req          properly initialized struct req object */
-ut *rpcd_handle(struct req *req);
+ut *rpcd_handle(struct rpcd *rpcd, struct req *req);
 
 #endif

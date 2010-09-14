@@ -10,6 +10,7 @@
 #include "standard.h"
 #include "rpcd.h"
 #include "rpcd_module.h"
+#include "daemon.h"
 #include "read.h"
 #include "write.h"
 #include "sh.h"

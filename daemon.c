@@ -18,16 +18,8 @@
 
 __USE_LIBASN
 
-/** Pointer at function reading new request */
-int (*readreq)(struct req *req);
-
-/** Pointer at function writing reply */
-void (*writerep)(struct req *req);
-
-/****************************************************/
-
 /** SIGTERM/INT handler */
-static void finish() { /* FIXME unlink(R.pidfile); */ exit(0); }
+static void finish() { unlink(O.pidfile); exit(0); }
 
 /** Prints usage help screen */
 static void help(void)
@@ -66,7 +58,7 @@ static void version(void)
  * @retval 0     error, main() should exit (eg. wrong arg. given)
  * @retval 1     ok
  * @retval 2     ok, but main() should exit (eg. on --version or --help) */
-static int init(int argc, char *argv[])
+static int parse_argv(int argc, char *argv[])
 {
 	int i, c;
 
@@ -89,13 +81,13 @@ static int init(int argc, char *argv[])
 	};
 
 	/* set defaults */
-/* FIXME	R.daemonize = false;
-	R.pidfile = RPCD_DEFAULT_PIDFILE;
-	R.name = NULL;
-	R.htpasswd = NULL;*/
+	memset(&O, 0, sizeof O);
 
-	readreq = readjson;
-	writerep = writejson;
+	O.pidfile = RPCD_DEFAULT_PIDFILE;
+	O.name = "rpcd";
+	O.mode = RPCD_JSON;
+	O.read = readjson;
+	O.write = writejson;
 
 	for (;;) {
 		c = getopt_long(argc, argv, short_opts, long_opts, &i);
@@ -109,57 +101,78 @@ static int init(int argc, char *argv[])
 			case 'v':
 			case  4 : version(); return 2;
 			case 'd':
-//			case  5 : R.daemonize = 1; break;
-//			case  6 : R.pidfile = optarg; break;
-			case  7 : readreq = read822;  writerep = write822; break;
-			case  8 : readreq = readhttp; writerep = writehttp; break;
-			case  9 : readreq = readjson; writerep = writejson; break;
-//			case 10 : R.name = optarg; break;
-//			case 11 : R.htpasswd = optarg; break;
-//			case 12 : R.htdocs = optarg; break;
+			case  5 : O.daemonize = 1; break;
+			case  6 : O.pidfile = optarg; break;
+			case  7 :
+				O.mode = RPCD_RFC;
+				O.read = read822;
+				O.write = write822;
+				break;
+			case  8 :
+				O.mode = RPCD_HTTP;
+				O.read = readhttp;
+				O.write = writehttp;
+				break;
+			case  9 :
+				O.mode = RPCD_JSON;
+				O.read = readjson;
+				O.write = writejson;
+				break;
+			case 10 : O.name = optarg; break;
+			case 11 : O.http.htpasswd = optarg; break;
+			case 12 : O.http.htdocs = optarg; break;
 			default: help(); return 0;
 		}
 	}
 
-/*	if (argc - optind < 1) {
-		R.name = "rpcd";
-		scan_dir(".");
-	} else {
-		while (argc - optind > 0) {
-			if (R.name == NULL)
-				R.name = pb("rpcd %s", argv[optind]);
-
-			scan_dir(argv[optind++]);
-		}
-	}*/
+	if (argc - optind > 0)
+		O.config_file = argv[optind];
 
 	return 1;
 }
 
-/******************************************************/
+/** Pass request to librpcd
+ * @retval true    request went through modules
+ * @retval false   request handled internally - eg. error or HTTP GET */
+bool handle(struct rpcd *rpcd, struct req *req)
+{
+	/* HTTP authentication */
+	if (req->http.needauth && O.http.htpasswd) {
+		auth_http(req);
+		if (!req->user)
+			return errcode(JSON_RPC_ACCESS_DENIED);
+	}
+
+	if (!ut_ok(req->reply))
+		return false;
+
+	/*
+	 * Handle RPC call
+	 */
+	dbg(5, "params: %s\n", ut_char(req->params));
+	rpcd_handle(rpcd, req);
+	return true;
+}
 
 int main(int argc, char *argv[])
 {
 	struct rpcd *rpcd;
 	struct req *req = NULL;
-	json *js;
 
 	signal(SIGTERM, finish);
 	signal(SIGINT,  finish);
 
-	switch (init(argc, argv)) {
+	switch (parse_argv(argc, argv)) {
 		case 0: return 1;
 		case 2: return 0;
 	}
 
-	// TODO + error handling
-//	rpcd = rpcd_init(R.config_file);
-	rpcd = rpcd_init("./rpcd.conf");
+	rpcd = rpcd_init(O.config_file, false);
+	if (!rpcd)
+		return 2;
 
-/*	if (R.daemonize)
-		asn_daemonize(R.name, R.pidfile);*/
-
-	int read_status;
+	if (O.daemonize)
+		asn_daemonize(O.name, O.pidfile);
 
 	do {
 		/* flush temp mem */
@@ -171,40 +184,13 @@ int main(int argc, char *argv[])
 		req->prv = ut_new_thash(NULL, req);
 		req->reply = ut_new_thash(NULL, req);
 
-		/* prepare parser */
-		js = json_create(req);
-
-		/* read the request */
-		read_status = readreq(req);
-		if (read_status == 0) /* invalid */
-			goto reply;
-
-		/* dump it for debugging purposes */
-		if (read_status == 1 && req->params) /* all OK */
-			dbg(5, "%s\n", ut_char(req->params));
-
-		/* authenticate */
-/*		if (R.htpasswd) {
-			req->user = auth(req);
-
-			if (!req->user) {
-				errcode(JSON_RPC_ACCESS_DENIED);
-				goto reply;
-			}
-		}*/
-
-		/* mostly for HTTP file server */
-		if (read_status == 2)
-			goto reply;
-
-		req->mod = thash_get(rpcd->defsvc->defdir->modules, req->method);
-
-		rpcd_handle(req);
-reply:
-		writerep(req);
+		/* handle it */
+		O.read(req);
+		handle(rpcd, req);
+		O.write(req);
 	} while (req->last == false);
 
-	return 1;
+	return 0;
 }
 
 /* for Vim autocompletion:

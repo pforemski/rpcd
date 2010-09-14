@@ -9,13 +9,12 @@
 /** Cache of internal users: username -> struct user * */
 static thash *authdb = NULL;
 
-#if 0
 static void authdb_init(struct req *req)
 {
 	struct mod *mod = req->mod;
 	char *str;
 
-	str = asn_readfile(R.htpasswd, req);
+	str = asn_readfile(O.http.htpasswd, req);
 	if (str) {
 		authdb = rfc822_parse(str, mod);
 
@@ -28,33 +27,29 @@ static void authdb_init(struct req *req)
 
 	authdb = thash_create_strkey(NULL, req);
 }
-#endif
 
-/** Authenticate user info in req->claim_* and return matching user on success
- * @retval NULL   authentication failed */
-const char *auth(struct req *req)
+/** Authenticate user info in req->http and update user/pass in req
+ * @retval false authentication failed */
+bool auth_http(struct req *req)
 {
 	const char *pass;
 
-	// FIXME
-	return NULL;
-#if 0
-
-	if (!R.htpasswd)
-		return NULL;
+	if (!O.http.htpasswd)
+		return false;
 
 	if (!authdb)
 		authdb_init(req);
 
-	if (!req->claim_user || !req->claim_user[0] || !req->claim_pass)
-		return NULL;
+	if (!req->http.user || !req->http.user[0] || !req->http.pass)
+		return false;
 
-	pass = thash_get(authdb, req->claim_user);
-	if (!pass || !streq(req->claim_pass, pass))
-		return NULL;
+	pass = thash_get(authdb, req->http.user);
+	if (!pass || !streq(req->http.pass, pass))
+		return false;
 
-	dbg(3, "user %s authenticated\n", req->claim_user);
+	req->user = mmatic_strdup(req->http.user, req);
+	req->pass = mmatic_strdup(req->http.pass, req);
+	dbg(3, "user %s authenticated\n", req->user);
 
-	return req->claim_user;
-#endif
+	return true;
 }

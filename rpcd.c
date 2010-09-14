@@ -17,7 +17,7 @@
 
 /** Parse config file
  * @retval NULL   failed */
-static ut *read_config(struct rpcd *rpcd, const char *config_file)
+static ut *read_config(struct rpcd *rpcd, const char *config_file, bool config_inline)
 {
 	FILE *fp;
 	xstr *xs;
@@ -25,11 +25,10 @@ static ut *read_config(struct rpcd *rpcd, const char *config_file)
 	json *js;
 	ut *cfg;
 
-	if (config_file == NULL) {
-		config_file = RPCD_DEFAULT_CONFIGFILE;
-	}
+	if (config_inline == false) {
+		if (config_file == NULL)
+			config_file = RPCD_DEFAULT_CONFIGFILE;
 
-	if (config_file[0] == '/' || (config_file[0] == '.' && config_file[1] == '/')) {
 		/* read file contents, ignoring empty lines and comments */
 		fp = fopen(config_file, "r");
 		if (!fp) {
@@ -47,7 +46,7 @@ static ut *read_config(struct rpcd *rpcd, const char *config_file)
 		fclose(fp);
 
 		config_file = xstr_string(xs);
-	} else if (config_file[0]) {
+	} else if (config_file && config_file[0]) {
 		config_file = mmatic_printf(rpcd, "{ rpcd = { %s } }", config_file);
 	}
 
@@ -248,7 +247,7 @@ static struct svc *load_svc(struct rpcd *rpcd, const char *svcname, ut *svccfg)
 /***************************************************************************************************/
 /***************************************************************************************************/
 
-struct rpcd *rpcd_init(const char *config_file)
+struct rpcd *rpcd_init(const char *config_file, bool config_inline)
 {
 	struct rpcd *rpcd;
 	ut *rootcfg, *svccfg;
@@ -261,7 +260,7 @@ struct rpcd *rpcd_init(const char *config_file)
 	rpcd = mmatic_zalloc(sizeof *rpcd, mmatic_create());
 
 	/* parse config file */
-	rootcfg = read_config(rpcd, config_file);
+	rootcfg = read_config(rpcd, config_file, config_inline);
 
 	if (rootcfg)
 		rpcd->cfg = uth_get(rootcfg, "*");
@@ -315,18 +314,31 @@ bool rpcd_dir_load(struct rpcd *rpcd, const char *path)
 ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
 {
 	struct req *req;
-	struct svc *svc = NULL;
-	struct dir *dir = NULL;
-	char *query, *dotl, *dotr;
-	char *svcname, *dirname, *metname;
 
 	req = mmatic_zalloc(sizeof *req, mmatic_create());
 	req->prv = ut_new_thash(NULL, req);
 	req->reply = ut_new_thash(NULL, req);
 	req->params = params;
+	req->method = method;
 
-	/* parse method = svc.dir.method */
-	query = mmatic_strdup(method, req);
+	return rpcd_handle(rpcd, req);
+}
+
+ut *rpcd_handle(struct rpcd *rpcd, struct req *req)
+{
+	char *query, *dotl, *dotr;
+	char *svcname, *dirname = NULL, *metname;
+	struct mod *mod, *common;
+	struct svc *svc = NULL;
+	struct dir *dir = NULL;
+
+	/*
+	 * Parse method = svc.dir.method
+	 */
+	if (!req->method || !req->method[0])
+		goto notfound;
+
+	query = mmatic_strdup(req->method, req);
 	dotl = strchr(query, '.');
 	dotr = strrchr(query, '.');
 
@@ -347,33 +359,29 @@ ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
 		metname = query;
 	}
 
-	if (svcname)
-		svc = thash_get(rpcd->svcs, svcname);
-	if (!svc)
-		svc = rpcd->defsvc;
-
-	if (dirname)
-		dir = thash_get(svc->dirs, dirname);
-	if (!dir)
-		dir = svc->defdir;
+	/* update info in req */
+	if (!req->service)
+		req->service = svcname;
 
 	req->method = metname;
-	req->mod = thash_get(dir->modules, metname);
 
-	return rpcd_handle(req);
-}
+	/*
+	 * Find resources
+	 */
+	svc = req->service ? thash_get(rpcd->svcs, req->service) : rpcd->defsvc;
+	if (!svc) goto notfound;
 
-ut *rpcd_handle(struct req *req)
-{
-	struct mod *mod, *common;
+	dir = dirname ? thash_get(svc->dirs, dirname) : svc->defdir;
+	if (!dir) goto notfound;
 
-	if (!req->mod) {
-		errcode(JSON_RPC_NOT_FOUND);
-		return req->reply;
-	}
+	req->mod = thash_get(dir->modules, req->method);
+	if (!req->mod) goto notfound;
 
+	/*
+	 * Handle
+	 */
 	mod = req->mod;
-	common = mod->dir->common;
+	common = dir->common;
 
 	/* TODO: prepend */
 
@@ -390,6 +398,10 @@ ut *rpcd_handle(struct req *req)
 
 reply:
 	if (!req->reply) errcode(JSON_RPC_NO_OUTPUT);
+	return req->reply;
+
+notfound:
+	errcode(JSON_RPC_NOT_FOUND);
 	return req->reply;
 }
 

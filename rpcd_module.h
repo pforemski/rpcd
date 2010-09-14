@@ -59,18 +59,24 @@ struct req {
 	struct mod *mod;                   /** way up */
 	ut *prv;                           /** request internal data hash */
 
+	const char *service;               /** called service */
 	const char *method;                /** called method */
 	const char *id;                    /** optional ID, if present */
 	ut *params;                        /** the "params" argument */
 	ut *reply;                         /** reply, may be NULL */
 
-	/* HTTP handling */
-	thash *hh;                         /** if not NULL, holds HTTP headers */
-	const char *uripath;               /** full path to HTTP URI */
-	const char *claim_user;            /** requester claims to be this user */
-	const char *claim_pass;            /** and gives us this password to verify him */
 	const char *user;                  /** if not null, points at authenticated user */
+	const char *pass;                  /** if not null, holds password of authed user */
 	bool last;                         /** if true, exit after handling this request */
+
+	/* HTTP handling */
+	struct req_http {
+		thash *headers;                /** if not NULL, holds HTTP headers */
+		const char *uripath;           /** full filesystem path to requested doc */
+		const char *user;              /** requester claims to be this user */
+		const char *pass;              /** and gives us this password to verify him */
+		bool needauth;                 /** if true, require authentication if available */
+	} http;
 };
 
 struct api {

@@ -62,7 +62,7 @@ bool writehttp_get(struct req *req)
 	struct tm mod_server;
 
 	/* check file */
-	if (stat(req->uripath, &ss) == -1)
+	if (stat(req->http.uripath, &ss) == -1)
 		return errsys("stat()");
 
 	/* date/time stuff */
@@ -70,13 +70,13 @@ bool writehttp_get(struct req *req)
 	gmtime_r(&ss.st_mtime, &mod_server);
 
 	/* dont open the file if client is up to date */
-	if ((ms = thash_get(req->hh, "If-Modified-Since")) &&
+	if ((ms = thash_get(req->http.headers, "If-Modified-Since")) &&
 		strptime(ms, RFC_DATETIME, &mod_client) != NULL &&
 		mktime(&mod_client) >= mktime(&mod_server)) {
 		code = 304;
 		msg = "Not Modified";
 	} else {
-		fd = open(req->uripath, O_RDONLY, O_NOATIME);
+		fd = open(req->http.uripath, O_RDONLY, O_NOATIME);
 
 		if (fd == -1)
 			return errsys("open()");
@@ -100,7 +100,7 @@ bool writehttp_get(struct req *req)
 		printf("Expires: %s\n", date);
 
 		/* MIME stuff */
-		if ((ext = strrchr(req->uripath, '.')))
+		if ((ext = strrchr(req->http.uripath, '.')))
 			type = asn_ext2mime(ext + 1);
 
 		printf("Content-Type: %s\n", type);
@@ -136,18 +136,16 @@ void writehttp(struct req *req)
 
 	if (!ut_ok(req->reply)) switch (ut_errcode(req->reply)) {
 		case JSON_RPC_ACCESS_DENIED:
-#if 0
-			if (R.htpasswd)
-				header = mmatic_printf(req, "WWW-Authenticate: Basic realm=\"%s\"\n", /* FIXME R.name */ "rpcd");
+			if (O.http.htpasswd)
+				header = "WWW-Authenticate: Basic realm=\"rpcd\"\n";
 
-			if (R.htpasswd && !req->claim_user) {
+			if (O.http.htpasswd && !req->http.user) {
 				code = 401;
 				msg = "Authorization Required";
 			} else {
-#endif
 				code = 403;
 				msg = "Forbidden";
-//			}
+			}
 			break;
 
 		case JSON_RPC_HTTP_NOT_FOUND:
