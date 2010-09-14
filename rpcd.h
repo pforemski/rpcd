@@ -45,9 +45,6 @@ struct rpcd *rpcd_init(const char *config_file, bool config_inline);
  * @note make sure not to use any memory taken from rpcd after calling rpcd_deinit() */
 void rpcd_deinit(struct rpcd *rpcd);
 
-/** Load given directory of modules into default service */
-bool rpcd_dir_load(struct rpcd *rpcd, const char *path);
-
 /** Make a request
  * @param rpcd         rpcd handle
  * @param method       name of the method to call
@@ -59,9 +56,5 @@ ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params);
 /** Free memory occupied by results of an rpcd request
  * @param reply        object returned by rpcd_request() */
 void rpcd_reqfree(ut *reply);
-
-/** Handle (execute) given request
- * @param req          properly initialized struct req object */
-ut *rpcd_handle(struct rpcd *rpcd, struct req *req);
 
 #endif

@@ -1,6 +1,6 @@
 # XXX: remove -lpthread in no-debugging versions
 CFLAGS =
-LDFLAGS = -lasn -ldl -lpthread
+LDFLAGS = -rdynamic -lasn -ldl -lpthread
 
 TARGETS=librpcd.so rpcd
 OBJECTS=rpcd.o generic.o sh.o

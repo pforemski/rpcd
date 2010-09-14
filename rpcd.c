@@ -164,7 +164,7 @@ static struct dir *load_dir(struct svc *svc, const char *dirpath, ut *dircfg)
 	dir->name = asn_basename(dirpath);
 	dir->cfg = uth_get(dircfg, "*"); /* TODO: merge svc.* */
 	dir->prv = ut_new_thash(NULL, dir);
-	dir->path = dirpath; /* TODO: abspath */
+	dir->path = asn_abspath(dirpath, dir);
 	dir->modules = thash_create_strkey(NULL, dir);
 
 	/* scan directory */
@@ -305,12 +305,6 @@ void rpcd_deinit(struct rpcd *rpcd)
 	mmatic_free(rpcd);
 }
 
-bool rpcd_dir_load(struct rpcd *rpcd, const char *path)
-{
-	/* TODO */
-	return true;
-}
-
 ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
 {
 	struct req *req;
@@ -324,10 +318,15 @@ ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params)
 	return rpcd_handle(rpcd, req);
 }
 
+ut *rpcd_subrequest(struct req *req, const char *method, ut *params)
+{
+	return rpcd_request(req->mod->dir->svc->rpcd, method, params);
+}
+
 ut *rpcd_handle(struct rpcd *rpcd, struct req *req)
 {
 	char *query, *dotl, *dotr;
-	char *svcname, *dirname = NULL, *metname;
+	char *svcname = NULL, *dirname = NULL, *metname;
 	struct mod *mod, *common;
 	struct svc *svc = NULL;
 	struct dir *dir = NULL;

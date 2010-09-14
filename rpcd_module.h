@@ -111,6 +111,14 @@ struct fw {
 
 /***************************************************************************************************/
 
+/** Handle (execute) given request
+ * @param req          properly initialized struct req object */
+ut *rpcd_handle(struct rpcd *rpcd, struct req *req);
+
+/** Make a subrequest
+ * @param req       current request */
+ut *rpcd_subrequest(struct req *req, const char *method, ut *params);
+
 /** Set error in req->reply
  * @param req       request to update req->reply to new ut_err in
  * @param code      error code
