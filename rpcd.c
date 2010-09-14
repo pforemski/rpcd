@@ -175,13 +175,13 @@ static struct dir *load_dir(struct svc *svc, const char *dirpath, ut *dircfg)
 		if (strncmp(filename, "common.", 7) == 0) {
 			tlist_remove(ls);
 
-			mod = load_module(dir, filename, &skip);
-			if (mod) {
-				thash_set(dir->modules, "common", mod);
-				dir->common = mod;
-				break; /* first match wins */
-			} else if (skip == false) {
-				return NULL;
+			if (!dir->common) { /* first match wins */
+				mod = load_module(dir, filename, &skip);
+				if (mod) {
+					dir->common = mod;
+				} else if (skip == false) {
+					return NULL;
+				}
 			}
 		}
 	}
@@ -199,7 +199,10 @@ static struct dir *load_dir(struct svc *svc, const char *dirpath, ut *dircfg)
 	/* try to bind configs */
 	t = ut_thash(dircfg);
 	THASH_ITER_LOOP(t, modname, modcfg) {
-		mod = thash_get(dir->modules, modname);
+		if (streq(modname, "common"))
+			mod = dir->common;
+		else
+			mod = thash_get(dir->modules, modname);
 
 		if (mod)
 			mod->cfg = modcfg; /* TODO: merge svc.dir.* */
@@ -285,6 +288,13 @@ struct rpcd *rpcd_init(const char *config_file, bool config_inline)
 	/* run init() in each module */
 	THASH_ITER_LOOP(rpcd->svcs, svcname, svc) {
 		THASH_ITER_LOOP(svc->dirs, dirname, dir) {
+			if (dir->common) {
+				if (!dir->common->api->init(dir->common)) {
+					dbg(0, "%s: module initialization failed\n", dir->common->path);
+					goto err;
+				}
+			}
+
 			THASH_ITER_LOOP(dir->modules, modname, mod) {
 				if (!mod->api->init(mod)) {
 					dbg(0, "%s: module initialization failed\n", mod->path);
