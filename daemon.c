@@ -149,7 +149,7 @@ bool handle(struct rpcd *rpcd, struct req *req)
 	/*
 	 * Handle RPC call
 	 */
-	dbg(5, "params: %s\n", ut_char(req->params));
+	dbg(8, "params: %s\n", ut_char(req->params));
 	rpcd_handle(rpcd, req);
 	return true;
 }
