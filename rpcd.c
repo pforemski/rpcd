@@ -85,7 +85,6 @@ static struct mod *load_module(struct dir *dir, const char *filename, bool *skip
 	mod = mmatic_zalloc(sizeof *mod, dir);
 	mod->dir  = dir;
 	mod->name = asn_replace("/\\.[a-z]+$/", "", filename, mod);
-	mod->prv  = ut_new_thash(NULL, mod);
 	mod->path = mmatic_printf(mod, "%s/%s", dir->path, filename);
 
 	if (asn_isfile(mod->path) < 0)
@@ -121,6 +120,8 @@ static struct mod *load_module(struct dir *dir, const char *filename, bool *skip
 		goto skip;
 	} else goto skip;
 
+	asnsert(mod->api);
+
 	if (mod->api->tag != RPCD_TAG) {
 		dbg(0, "%s failed: invalid API magic\n", mod->path);
 		goto skip;
@@ -135,9 +136,13 @@ static struct mod *load_module(struct dir *dir, const char *filename, bool *skip
 	if (!mod->api->handle)
 		mod->api->handle = generic_handle;
 
-	asnsert(mod->api);
-	dbg(1, "loaded %s\n", mod->path);
+	mod->prv  = ut_new_thash(NULL, mod);
+	mod->cfg  = ut_new_thash(NULL, mod);
+	uth_merge(mod->cfg, dir->svc->rpcd->cfg);
+	uth_merge(mod->cfg, dir->svc->cfg);
+	uth_merge(mod->cfg, dir->cfg);
 
+	dbg(1, "loaded %s\n", mod->path);
 	return mod;
 
 skip:
@@ -162,7 +167,7 @@ static struct dir *load_dir(struct svc *svc, const char *dirpath, ut *dircfg)
 	dir = mmatic_zalloc(sizeof *dir, svc);
 	dir->svc = svc;
 	dir->name = asn_basename(dirpath);
-	dir->cfg = uth_get(dircfg, "*"); /* TODO: merge svc.* */
+	dir->cfg = uth_get(dircfg, "*");
 	dir->prv = ut_new_thash(NULL, dir);
 	dir->path = asn_abspath(dirpath, dir);
 	dir->modules = thash_create_strkey(NULL, dir);
@@ -199,16 +204,19 @@ static struct dir *load_dir(struct svc *svc, const char *dirpath, ut *dircfg)
 	/* try to bind configs */
 	t = ut_thash(dircfg);
 	THASH_ITER_LOOP(t, modname, modcfg) {
-		if (streq(modname, "common"))
+		if (streq(modname, "*"))
+			continue;
+		else if (streq(modname, "common"))
 			mod = dir->common;
 		else
 			mod = thash_get(dir->modules, modname);
 
-		if (mod)
-			mod->cfg = modcfg; /* TODO: merge svc.dir.* */
-		else
+		if (mod) {
+			uth_merge(mod->cfg, modcfg);
+		} else {
 			dbg(1, "%s.%s: could not find matching module for key '%s'\n",
 				svc->name, dir->name, modname);
+		}
 	}
 
 	return dir;
@@ -227,12 +235,15 @@ static struct svc *load_svc(struct rpcd *rpcd, const char *svcname, ut *svccfg)
 	svc = mmatic_zalloc(sizeof *svc, rpcd);
 	svc->rpcd = rpcd;
 	svc->name = svcname;
-	svc->cfg = uth_get(svccfg, "*"); /* TODO: merge * */
+	svc->cfg = uth_get(svccfg, "*");
 	svc->prv = ut_new_thash(NULL, svc);
 	svc->dirs = thash_create_strkey(NULL, svc);
 
 	t = ut_thash(svccfg);
 	THASH_ITER_LOOP(t, dirpath, dircfg) {
+		if (streq(dirpath, "*"))
+			continue;
+
 		dir = load_dir(svc, dirpath, dircfg);
 
 		if (dir) {
@@ -275,6 +286,9 @@ struct rpcd *rpcd_init(const char *config_file, bool config_inline)
 
 	t = ut_thash(rootcfg);
 	THASH_ITER_LOOP(t, svcname, svccfg) {
+		if (streq(svcname, "*"))
+			continue;
+
 		svc = load_svc(rpcd, svcname, svccfg);
 
 		if (svc) {
@@ -391,8 +405,6 @@ ut *rpcd_handle(struct rpcd *rpcd, struct req *req)
 	 */
 	mod = req->mod;
 	common = dir->common;
-
-	/* TODO: prepend */
 
 	if (common && common->fw && !generic_fw(req, common->fw))
 		goto reply;
