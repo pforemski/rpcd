@@ -24,7 +24,7 @@ static void finish() { unlink(O.pidfile); exit(0); }
 /** Prints usage help screen */
 static void help(void)
 {
-	printf("Usage: rpcd [OPTIONS] <CONFIG FILE>\n");
+	printf("Usage: rpcd [OPTIONS] <CONFIG FILE>|<DIRECTORY>\n");
 	printf("\n");
 	printf("  A JSON-RPC server.\n");
 	printf("\n");
@@ -167,7 +167,12 @@ int main(int argc, char *argv[])
 		case 2: return 0;
 	}
 
-	rpcd = rpcd_init(O.config_file, false);
+	if (asn_isdir(O.config_file) == 1) {
+		rpcd = rpcd_init(asn_malloc_printf("\"%s\" = {}", O.config_file), true);
+	} else {
+		rpcd = rpcd_init(O.config_file, false);
+	}
+
 	if (!rpcd)
 		return 2;
 

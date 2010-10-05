@@ -13,7 +13,6 @@
 #include "daemon.h"
 #include "read.h"
 #include "write.h"
-#include "sh.h"
 #include "auth.h"
 #include "generic.h"
 

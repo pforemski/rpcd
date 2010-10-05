@@ -7,44 +7,58 @@
 #include <signal.h>
 #include "common.h"
 
-bool sh_init(struct mod *mod)
+static char escbuf[4096];
+
+static const char *escape(const char *what)
+{
+	int i, j;
+
+	for (i = 0, j = 0; what[i] && j < sizeof escbuf - 2; i++) {
+		if (what[i] == '\'' || what[i] == '\\' || what[i] == '"')
+			continue;
+
+		escbuf[j++] = what[i];
+	}
+
+	escbuf[j] = '\0';
+	return escbuf;
+}
+
+static bool sh_init(struct mod *mod)
 {
 	signal(SIGPIPE, SIG_IGN);
-
-	dbg(1, "%s: initialized\n", mod->path);
 	return true;
 }
 
-bool sh_deinit(struct mod *mod)
-{
-	dbg(1, "%s: deinitialized\n", mod->path);
-	return true;
-}
-
-// FIXME
-#define mm req
-bool sh_handle(struct req *req)
+static bool sh_handle(struct req *req)
 {
 	thash *env = NULL, *qh = NULL;
-	tlist *args = NULL, *qp = NULL;
+	tlist *list = NULL;
 	ut *v;
 	char *k;
+	xstr *args = NULL;
 
 	switch (ut_type(req->params)) {
-		case T_LIST: // FIXME: security?
-			qp = ut_tlist(req->params);
-			args = MMTLIST_CREATE(NULL);
+		case T_LIST:
+			args = xstr_create("", req);
 
-			TLIST_ITER_LOOP(qp, v)
-				tlist_push(args, ut_char(v));
+			list = ut_tlist(req->params);
+			TLIST_ITER_LOOP(list, v) {
+				xstr_append_char(args, '\'');
+				xstr_append(args, escape(ut_char(v)));
+				xstr_append_char(args, '\'');
+				xstr_append_char(args, ' ');
+			}
 			break;
 
 		case T_HASH:
-			qh = ut_thash(req->params);
-			env = MMTHASH_CREATE_STR(NULL);
+			env = thash_create_strkey(NULL, req);
 
-			THASH_ITER_LOOP(qh, k, v)
-				thash_set(env, asn_replace("/[^a-zA-Z0-9_]/", "_", k, mm), ut_char(v));
+			qh = ut_thash(req->params);
+			THASH_ITER_LOOP(qh, k, v) {
+				thash_set(env,
+					asn_replace("/[^a-zA-Z0-9_]/", "_", k, req), ut_char(v));
+			}
 			break;
 
 		default:
@@ -53,22 +67,20 @@ bool sh_handle(struct req *req)
 
 	/* run the handler */
 	int rc;
-	xstr *out = MMXSTR_CREATE("");
-	xstr *err = MMXSTR_CREATE("");
+	xstr *out = xstr_create("", req);
+	xstr *err = xstr_create("", req);
 
-	rc = asn_cmd2(req->mod->path, /* TODO:args */ NULL, env, NULL, out, err);
+	rc = asn_cmd2(req->mod->path, xstr_string(args), env, NULL, out, err);
 
-	if (rc != 0) {
+	if (rc != 0)
 		return err(rc, xstr_string(out), xstr_string(err));
-	} else {
-		req->reply = ut_new_thash(rfc822_parse(xstr_string(out), req), req);
-		return true;
-	}
+
+	req->reply = ut_new_thash(rfc822_parse(xstr_string(out), req), req);
+	return true;
 }
 
 struct api sh_api = {
 	.tag    = RPCD_TAG,
 	.init   = sh_init,
-	.deinit = sh_deinit,
 	.handle = sh_handle,
 };
