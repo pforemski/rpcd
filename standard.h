@@ -1,9 +1,8 @@
 /*
  * Based on http://groups.google.com/group/json-rpc/web/json-rpc-2-0
  *
- * Copyright (C) 2009-2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
- * All rights reserved
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
+ * Licensed under GPLv3
  */
 
 #ifndef _STANDARD_H_

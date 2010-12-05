@@ -1,10 +1,9 @@
 /*
  * rpcd - a JSON-RPC server
  *
- * Copyright (C) 2009-2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
  *
- * All rights reserved
+ * Licensed under GPLv3
  */
 
 #define _GNU_SOURCE 1
@@ -12,7 +11,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <dlfcn.h>
-#include <libasn/lib.h>
+#include <libpjf/lib.h>
 #include "common.h"
 
 /** Parse config file

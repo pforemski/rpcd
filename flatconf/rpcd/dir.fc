@@ -1,2 +1,0 @@
-type = "list"
-title = { en: "Directories to search for *.so, *.js and *.sh files in" }

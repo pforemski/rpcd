@@ -1,7 +1,6 @@
 /*
- * Copyright (C) 2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
- * All rights reserved
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
+ * Licensed under GPLv3
  */
 
 #ifndef _AUTH_H_

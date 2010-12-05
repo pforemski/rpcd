@@ -1,3 +1,0 @@
-type = "text"
-default = "rpcd"
-title = { en: "Name to show in syslog" }

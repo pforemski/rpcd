@@ -1,10 +1,8 @@
 /*
  * rpcd - a JSON-RPC server
  *
- * Copyright (C) 2009-2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
- *
- * All rights reserved
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
+ * Licensed under GPLv3
  */
 
 #define _GNU_SOURCE 1
@@ -13,7 +11,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <signal.h>
-#include <libasn/lib.h>
+#include <libpjf/lib.h>
 #include "common.h"
 
 __USE_LIBASN
@@ -50,8 +48,8 @@ static void help(void)
 static void version(void)
 {
 	printf("rpcd %s\n", RPCD_VER);
-	printf("Copyright (C) 2009-2010 ASN Sp. z o.o.\n");
-	printf("All rights reserved.\n");
+	printf("Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>\n");
+	printf("Licensed under GNU GPL v3.\n");
 }
 
 /** Parses arguments and loads modules
@@ -125,8 +123,12 @@ static int parse_argv(int argc, char *argv[])
 		}
 	}
 
-	if (argc - optind > 0)
+	if (argc - optind > 0) {
 		O.config_file = argv[optind];
+	} else {
+		help();
+		return 0;
+	}
 
 	return 1;
 }
@@ -173,8 +175,10 @@ int main(int argc, char *argv[])
 		rpcd = rpcd_init(O.config_file, false);
 	}
 
-	if (!rpcd)
+	if (!rpcd) {
+		fprintf(stderr, "Initialization failed. Try --debug option to get more info.\n");
 		return 2;
+	}
 
 	if (O.daemonize)
 		asn_daemonize(O.name, O.pidfile);

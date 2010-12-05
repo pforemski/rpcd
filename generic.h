@@ -1,10 +1,9 @@
 /*
  * generic handling procedures, off-loading module programming
  *
- * Copyright (C) 2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
  *
- * All rights reserved
+ * Licensed under GPLv3
  */
 
 #ifndef _GENERIC_H_

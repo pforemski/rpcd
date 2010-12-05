@@ -1,16 +1,15 @@
 /*
  * rpcd - a JSON-RPC bridge
  *
- * Copyright (C) 2009-2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
  *
- * All rights reserved
+ * Licensed under GPLv3
  */
 
 #ifndef _RPCD_MODULE_H_
 #define _RPCD_MODULE_H_
 
-#include <libasn/lib.h>
+#include <libpjf/lib.h>
 #include "rpcd.h"
 #include "standard.h"
 

@@ -1,3 +1,0 @@
-type = "dir"
-
-order = { "password", "groups" }

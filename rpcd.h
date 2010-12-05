@@ -1,16 +1,15 @@
 /*
  * rpcd - a JSON-RPC bridge
  *
- * Copyright (C) 2009-2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
  *
- * All rights reserved
+ * Licensed under GPLv3
  */
 
 #ifndef _RPCD_H_
 #define _RPCD_H_
 
-#include <libasn/lib.h>
+#include <libpjf/lib.h>
 
 /***************************************************************************************************/
 
@@ -48,7 +47,7 @@ void rpcd_deinit(struct rpcd *rpcd);
 /** Make a request
  * @param rpcd         rpcd handle
  * @param method       name of the method to call
- * @param params       unitype object (see libasn) with parameters, may be NULL
+ * @param params       unitype object (see libpjf) with parameters, may be NULL
  * @return unitype object with reply
  * @note remember to call rpcd_reqfree() after you're done with returned object */
 ut *rpcd_request(struct rpcd *rpcd, const char *method, ut *params);

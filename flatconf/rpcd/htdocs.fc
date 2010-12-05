@@ -1,3 +1,0 @@
-title = { en: "Path to static files for HTTP mode, relative to start dir" }
-type = "text"
-default = "htdocs"

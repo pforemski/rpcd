@@ -1,16 +1,15 @@
 /*
  * rpcd - a JSON-RPC bridge
  *
- * Copyright (C) 2009-2010 ASN Sp. z o.o.
- * Author: Pawel Foremski <pforemski@asn.pl>
+ * Copyright (C) 2009-2010 Pawel Foremski <pawel@foremski.pl>
  *
- * All rights reserved
+ * Licensed under GPLv3
  */
 
 #ifndef _DAEMON_H_
 #define _DAEMON_H_
 
-#include <libasn/lib.h>
+#include <libpjf/lib.h>
 #include "standard.h"
 
 struct rpcd_opts {
